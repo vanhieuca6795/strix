@@ -777,6 +777,55 @@ def _do_delete(
     }
 
 
+def _verify_evidence_grounding(*, evidence: str, agent_id: str | None) -> dict[str, Any] | None:
+    """Đối chiếu ``evidence`` với output lệnh thật đã quan sát.
+
+    Trả về dict lỗi nếu bằng chứng không neo được vào bất kỳ receipt thật nào,
+    hoặc ``None`` nếu hợp lệ / không đủ dữ kiện để kết luận.
+
+    Không kết luận khi agent chưa chạy lệnh nào: scan whitebox thuần đọc source
+    không sinh receipt, và chặn oan ở đó là sai.
+    """
+    try:
+        from strix.config.loader import load_settings
+
+        if not load_settings().context.evidence_grounding:
+            return None
+
+        from strix.utils.evidence_grounding import verify_evidence_candidates
+        from strix.utils.receipt_store import receipts_for_verification
+
+        receipts = receipts_for_verification(agent_id)
+        if not receipts:
+            return None
+
+        match = verify_evidence_candidates(evidence, receipts)
+        if match.verified:
+            logger.info(
+                "Evidence grounded (method=%s, agent=%s)", match.method, agent_id or "unknown"
+            )
+            return None
+    except Exception:
+        logger.exception("evidence grounding check failed; allowing report through")
+        return None
+
+    return {
+        "success": False,
+        "error": "Evidence cannot be verified against any command output",
+        "errors": [
+            "Trường `evidence` không khớp với bất kỳ output lệnh nào đã thực sự chạy. "
+            "Bằng chứng phải là một lát cắt nguyên văn từ kết quả tool thật (thường là "
+            "output của `exec_command`), không phải diễn giải lại bằng lời.",
+            "Hãy chạy lại bước kiểm thử để sinh output thật, rồi dán nguyên văn phần "
+            "output đó vào `evidence` (đặt trong khối ``` để rõ ràng).",
+        ],
+        "hint": (
+            "Nếu scan không chạy lệnh nào (chỉ đọc source), đặt "
+            "STRIX_EVIDENCE_GROUNDING=false để tắt kiểm chứng này."
+        ),
+    }
+
+
 async def _do_create(
     *,
     title: str,
@@ -852,6 +901,10 @@ async def _do_create(
 
     if errors:
         return {"success": False, "error": "Validation failed", "errors": errors}
+
+    grounding_error = _verify_evidence_grounding(evidence=evidence, agent_id=agent_id)
+    if grounding_error is not None:
+        return grounding_error
 
     try:
         cvss_score, severity, _vector = _calculate_cvss(cvss_breakdown)

@@ -106,6 +106,10 @@ class ContextSettings(BaseSettings):
     tool_output_max_bytes: int = Field(
         default=50 * 1024, ge=1024, alias="STRIX_TOOL_OUTPUT_MAX_BYTES"
     )
+    # Bật kiểm chứng bằng chứng: trường `evidence` của báo cáo lỗ hổng phải khớp
+    # một lát cắt chính xác của output lệnh thật đã quan sát, thay vì chỉ cần
+    # "không rỗng". Tắt khi scan không chạy lệnh (whitebox thuần đọc source).
+    evidence_grounding: bool = Field(default=True, alias="STRIX_EVIDENCE_GROUNDING")
 
 
 class RuntimeSettings(BaseSettings):

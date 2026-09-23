@@ -257,7 +257,9 @@ ignore = [
 # strix.telemetry / strix.report.dedupe / cvss.
 "strix/tools/notes/tools.py" = ["PLC0415", "TC002"]
 "strix/tools/finish/tool.py" = ["PLC0415", "TC002"]
-"strix/tools/reporting/tool.py" = ["PLC0415", "TC002"]
+# _do_create có thêm một nhánh từ chối khi bằng chứng không kiểm chứng được;
+# phần phán quyết chi tiết đã tách sang _verify_evidence_grounding.
+"strix/tools/reporting/tool.py" = ["PLC0415", "TC002", "PLR0911"]
 # Lazy imports of strix.tools.mcp.client avoid a circular import (client imports
 # the session module at module load).
 "strix/tools/mcp/session.py" = ["PLC0415"]

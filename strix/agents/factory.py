@@ -77,6 +77,7 @@ from strix.tools.todo.tools import (
     update_todo,
 )
 from strix.tools.web_search.tool import web_get_contents, web_search
+from strix.utils.receipt_store import record_receipt
 
 
 if TYPE_CHECKING:
@@ -140,6 +141,26 @@ async def _bound_result(result: Any) -> Any:
     return await bound_and_store(result, max_lines=max_lines, max_bytes=max_bytes)
 
 
+def _agent_id_from_ctx(ctx: Any) -> str | None:
+    """Lấy agent_id từ context của lần gọi tool."""
+    context = getattr(ctx, "context", None)
+    inner = context if isinstance(context, dict) else {}
+    raw = inner.get("agent_id")
+    return raw if isinstance(raw, str) else None
+
+
+def _record_tool_receipt(ctx: Any, tool_name: str, result: Any) -> None:
+    """Ghi kết quả tool vào kho receipt phục vụ kiểm chứng bằng chứng.
+
+    Đây là quan sát của runtime, không phải bộ nhớ agent — không thay đổi
+    hành vi của tool. Lỗi ghi receipt không bao giờ được làm hỏng lượt gọi tool.
+    """
+    try:
+        record_receipt(_agent_id_from_ctx(ctx), tool_name, result)
+    except Exception:  # noqa: BLE001 - ghi nhận là phụ trợ, không được chặn tool
+        logger.debug("receipt recording failed for tool %s", tool_name, exc_info=True)
+
+
 def _format_tool_error(exc: Exception) -> str:
     message = str(exc) or exc.__class__.__name__
     max_lines, max_bytes = _tool_output_limits()
@@ -153,7 +174,9 @@ def _with_bounded_result(tool: FunctionTool) -> FunctionTool:
     invoke_tool = tool.on_invoke_tool
 
     async def invoke(ctx: Any, raw_input: str) -> Any:
-        return await _bound_result(await invoke_tool(ctx, raw_input))
+        result = await invoke_tool(ctx, raw_input)
+        _record_tool_receipt(ctx, tool.name, result)
+        return await _bound_result(result)
 
     tool.on_invoke_tool = invoke
     tool._strix_bounded = True  # type: ignore[attr-defined]
@@ -290,10 +313,12 @@ def _function_tool_with_error_result(tool: FunctionTool) -> FunctionTool:
 
     async def invoke(ctx: Any, raw_input: str) -> Any:
         try:
-            return await _bound_result(await invoke_tool(ctx, raw_input))
+            result = await invoke_tool(ctx, raw_input)
         except Exception as exc:  # noqa: BLE001 - tool errors should be model-visible results.
             logger.debug("Tool %s failed; returning error as result", tool.name, exc_info=True)
             return _format_tool_error(exc)
+        _record_tool_receipt(ctx, tool.name, result)
+        return await _bound_result(result)
 
     tool.on_invoke_tool = invoke
     return tool
