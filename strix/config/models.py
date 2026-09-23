@@ -626,6 +626,7 @@ RECOMMENDED_MODEL_NAMES = (
     "gemini/gemini-3.7-flash",
     "gemini/gemini-3.6-flash",
     "deepseek/deepseek-v4-pro",
+    "deepseek/deepseek-flash",
     "deepseek/deepseek-v4-flash",
     "dashscope/qwen3.8-max",
     "dashscope/qwen3.7-max-2026-06-08",
@@ -646,6 +647,8 @@ FRONTIER_MODEL_PREFIXES = (
     "claude-sonnet-4",
     "gemini-3",
     "deepseek-v4",
+    # Tên thật của DeepSeek-V4.1-Flash trên API hiện hành.
+    "deepseek-flash",
     "deepseek-r1",
     "deepseek-reasoner",
     "qwen3.8",

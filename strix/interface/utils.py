@@ -21,6 +21,7 @@ from rich.text import Text
 from strix.config import load_settings
 from strix.telemetry import report_error
 from strix.utils.api_spec import detect_spec_format
+from strix.utils.labels import severity_label, t
 
 
 logger = logging.getLogger(__name__)
@@ -65,29 +66,29 @@ def format_vulnerability_report(report: dict[str, Any]) -> Text:  # noqa: PLR091
 
     title = report.get("title", "")
     if title:
-        text.append("Vulnerability Report", style="bold #ea580c")
+        text.append(t("ui.report"), style="bold #ea580c")
         text.append("\n\n")
-        text.append("Title: ", style=field_style)
+        text.append(f"{t('ui.title')}: ", style=field_style)
         text.append(title)
 
     severity = report.get("severity", "")
     if severity:
         text.append("\n\n")
-        text.append("Severity: ", style=field_style)
+        text.append(f"{t('vuln.severity')}: ", style=field_style)
         severity_color = get_severity_color(severity.lower())
-        text.append(severity.upper(), style=f"bold {severity_color}")
+        text.append(severity_label(severity), style=f"bold {severity_color}")
 
     cvss = report.get("cvss")
     if cvss is not None:
         text.append("\n\n")
-        text.append("CVSS Score: ", style=field_style)
+        text.append(f"{t('ui.cvss_score')}: ", style=field_style)
         cvss_color = get_cvss_color(cvss)
         text.append(f"{cvss:.1f}", style=f"bold {cvss_color}")
 
     target = report.get("target")
     if target:
         text.append("\n\n")
-        text.append("Target: ", style=field_style)
+        text.append(f"{t('vuln.target')}: ", style=field_style)
         text.append(target)
 
     endpoint = report.get("endpoint")
@@ -237,7 +238,7 @@ def _build_vulnerability_stats(stats_text: Text, report_state: Any) -> None:
             if severity in severity_counts:
                 severity_counts[severity] += 1
 
-        stats_text.append("Vulnerabilities  ", style="bold red")
+        stats_text.append(f"{t('ui.vulnerabilities')}  ", style="bold red")
 
         severity_parts = []
         for severity in ["critical", "high", "medium", "low", "info"]:
@@ -259,9 +260,9 @@ def _build_vulnerability_stats(stats_text: Text, report_state: Any) -> None:
         stats_text.append(")", style="dim white")
         stats_text.append("\n")
     else:
-        stats_text.append("Vulnerabilities  ", style="bold #22c55e")
+        stats_text.append(f"{t('ui.vulnerabilities')}  ", style="bold #22c55e")
         stats_text.append("0", style="bold white")
-        stats_text.append(" (No exploitable vulnerabilities detected)", style="dim green")
+        stats_text.append(f" ({t('ui.no_exploitable')})", style="dim green")
         stats_text.append("\n")
 
 

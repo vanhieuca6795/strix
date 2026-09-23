@@ -44,6 +44,7 @@ from strix.interface.utils import (
 from strix.llm.warmup import start_import_warmup, wait_for_import_warmup
 from strix.telemetry import posthog, report_error, scarf, set_scan_phase
 from strix.telemetry.logging import configure_dependency_logging
+from strix.utils.labels import t
 
 
 BEDROCK_MODEL_PREFIX = "bedrock/"
@@ -269,17 +270,20 @@ def display_completion_message(args: argparse.Namespace, results_path: Path) -> 
 
     completion_text = Text()
     if scan_completed:
-        completion_text.append("Penetration test completed", style="bold #22c55e")
+        completion_text.append(t("ui.completed"), style="bold #22c55e")
     else:
         completion_text.append("SESSION ENDED", style="bold #eab308")
 
     target_text = Text()
-    target_text.append("Target", style="dim")
+    target_text.append(t("ui.target"), style="dim")
     target_text.append("  ")
     if len(args.targets_info) == 1:
         target_text.append(args.targets_info[0]["original"], style="bold white")
     else:
-        target_text.append(f"{len(args.targets_info)} targets", style="bold white")
+        target_text.append(
+                f"{len(args.targets_info)} {t('ui.targets_count')}",
+                style="bold white",
+            )
         for target_info in args.targets_info:
             target_text.append("\n        ")
             target_text.append(target_info["original"], style="white")
@@ -293,7 +297,7 @@ def display_completion_message(args: argparse.Namespace, results_path: Path) -> 
 
     results_text = Text()
     results_text.append("\n")
-    results_text.append("Output", style="dim")
+    results_text.append(t("ui.output"), style="dim")
     results_text.append("  ")
     results_text.append(str(results_path), style="#60a5fa")
     panel_parts.extend(["\n", results_text])

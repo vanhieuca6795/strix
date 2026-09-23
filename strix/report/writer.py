@@ -17,6 +17,7 @@ from pygments.lexers.special import TextLexer
 from pygments.util import ClassNotFound
 
 from strix.core.paths import run_record_path
+from strix.utils.labels import severity_label, t
 
 
 if TYPE_CHECKING:
@@ -139,8 +140,9 @@ def write_run_record(run_dir: Path, run_record: dict[str, Any]) -> None:
 def write_executive_report(run_dir: Path, final_scan_result: str) -> None:
     path = run_dir / "penetration_test_report.md"
     with path.open("w", encoding="utf-8") as f:
-        f.write("# Security Penetration Test Report\n\n")
-        f.write(f"**Generated:** {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n")
+        f.write(f"# {t('report.title')}\n\n")
+        generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        f.write(f"**{t('report.generated')}:** {generated}\n\n")
         f.write(f"{final_scan_result}\n")
     logger.info("Saved final penetration test report to: %s", path)
 
@@ -222,84 +224,84 @@ def atomic_write_text(path: Path, payload: str) -> None:
 
 def render_vulnerability_md(report: dict[str, Any]) -> str:  # noqa: PLR0912, PLR0915
     lines: list[str] = [
-        f"# {report.get('title', 'Untitled Vulnerability')}\n",
-        f"**ID:** {report.get('id', 'unknown')}",
-        f"**Severity:** {report.get('severity', 'unknown').upper()}",
-        f"**Found:** {report.get('timestamp', 'unknown')}",
+        f"# {report.get('title') or t('vuln.untitled')}\n",
+        f"**{t('vuln.id')}:** {report.get('id', 'unknown')}",
+        f"**{t('vuln.severity')}:** {severity_label(str(report.get('severity', 'unknown'))) }",
+        f"**{t('vuln.found')}:** {report.get('timestamp', 'unknown')}",
     ]
 
     dep_meta = report.get("dependency_metadata") or {}
     metadata: list[tuple[str, Any]] = [
-        ("Target", report.get("target")),
-        ("Package", dep_meta.get("package_name")),
-        ("Ecosystem", dep_meta.get("package_ecosystem")),
-        ("Installed Version", dep_meta.get("installed_version")),
-        ("Fixed Version", dep_meta.get("fixed_version")),
-        ("Introduced By", dep_meta.get("introduced_by")),
-        ("Dependency Chain", dep_meta.get("dependency_path")),
-        ("Endpoint", report.get("endpoint")),
-        ("Method", report.get("method")),
-        ("CVE", report.get("cve")),
-        ("CWE", report.get("cwe")),
+        ("vuln.target", report.get("target")),
+        ("vuln.package", dep_meta.get("package_name")),
+        ("vuln.ecosystem", dep_meta.get("package_ecosystem")),
+        ("vuln.installed_version", dep_meta.get("installed_version")),
+        ("vuln.fixed_version", dep_meta.get("fixed_version")),
+        ("vuln.introduced_by", dep_meta.get("introduced_by")),
+        ("vuln.dependency_chain", dep_meta.get("dependency_path")),
+        ("vuln.endpoint", report.get("endpoint")),
+        ("vuln.method", report.get("method")),
+        ("vuln.cve", report.get("cve")),
+        ("vuln.cwe", report.get("cwe")),
     ]
     cvss = report.get("cvss")
     if cvss is not None:
-        metadata.append(("CVSS", cvss))
+        metadata.append(("vuln.cvss", cvss))
     advisory_cvss = dep_meta.get("advisory_cvss")
     if advisory_cvss is not None and advisory_cvss != cvss:
-        metadata.append(("Advisory CVSS", advisory_cvss))
+        metadata.append(("vuln.advisory_cvss", advisory_cvss))
     if dep_meta.get("contextual_cvss_vector"):
-        metadata.append(("Contextual CVSS Vector", dep_meta["contextual_cvss_vector"]))
+        metadata.append(("vuln.contextual_cvss_vector", dep_meta["contextual_cvss_vector"]))
     if report.get("confidence"):
-        metadata.append(("Confidence", str(report["confidence"]).title()))
+        metadata.append(("vuln.confidence", str(report["confidence"]).title()))
     if report.get("fix_effort"):
-        metadata.append(("Fix Effort", str(report["fix_effort"]).title()))
+        metadata.append(("vuln.fix_effort", str(report["fix_effort"]).title()))
     for label, value in metadata:
         if value:
-            lines.append(f"**{label}:** {value}")
+            lines.append(f"**{t(label)}:** {value}")
 
     lines.append("")
-    lines.append("## Description\n")
-    lines.append(report.get("description") or "No description provided.")
+    lines.append(f"## {t('section.description')}\n")
+    lines.append(report.get("description") or t("detail.no_description"))
     lines.append("")
 
     if report.get("evidence"):
-        lines.append("## Evidence\n")
+        lines.append(f"## {t('section.evidence')}\n")
         lines.append(str(report["evidence"]))
         lines.append("")
 
     if report.get("impact"):
-        lines.append("## Impact\n")
+        lines.append(f"## {t('section.impact')}\n")
         lines.append(str(report["impact"]))
         lines.append("")
 
     if report.get("counterevidence"):
-        lines.append("## Counterevidence\n")
+        lines.append(f"## {t('section.counterevidence')}\n")
         lines.append(str(report["counterevidence"]))
         lines.append("")
 
     if report.get("confidence_rationale"):
-        lines.append("## Confidence Rationale\n")
+        lines.append(f"## {t('section.confidence_rationale')}\n")
         lines.append(str(report["confidence_rationale"]))
         lines.append("")
 
     if report.get("severity_change_conditions"):
-        lines.append("## What Would Change This Severity\n")
+        lines.append(f"## {t('section.severity_change_conditions')}\n")
         lines.append(str(report["severity_change_conditions"]))
         lines.append("")
 
     if report.get("technical_analysis"):
-        lines.append("## Technical Analysis\n")
+        lines.append(f"## {t('section.technical_analysis')}\n")
         lines.append(str(report["technical_analysis"]))
         lines.append("")
 
     if dep_meta.get("contextual_cvss_reasoning"):
-        lines.append("## Contextual CVSS\n")
+        lines.append(f"## {t('section.contextual_cvss')}\n")
         lines.append(str(dep_meta["contextual_cvss_reasoning"]))
         lines.append("")
 
     if report.get("poc_description") or report.get("poc_script_code"):
-        lines.append("## Proof of Concept\n")
+        lines.append(f"## {t('section.poc')}\n")
         if report.get("poc_description"):
             lines.append(str(report["poc_description"]))
             lines.append("")
@@ -313,7 +315,7 @@ def render_vulnerability_md(report: dict[str, Any]) -> str:  # noqa: PLR0912, PL
             lines.append("")
 
     if report.get("code_locations"):
-        lines.append("## Code Analysis\n")
+        lines.append(f"## {t('section.code_analysis')}\n")
         for i, loc in enumerate(report["code_locations"]):
             file_ref = loc.get("file", "unknown")
             line_ref = ""
@@ -342,17 +344,17 @@ def render_vulnerability_md(report: dict[str, Any]) -> str:  # noqa: PLR0912, PL
             lines.append("")
 
     if report.get("remediation_steps"):
-        lines.append("## Remediation\n")
+        lines.append(f"## {t('section.remediation')}\n")
         lines.append(str(report["remediation_steps"]))
         lines.append("")
 
     if report.get("fix_verification"):
-        lines.append("## Fix Verification\n")
+        lines.append(f"## {t('section.fix_verification')}\n")
         lines.append(str(report["fix_verification"]))
         lines.append("")
 
     if report.get("assumptions"):
-        lines.append("## Assumptions\n")
+        lines.append(f"## {t('section.assumptions')}\n")
         lines.append(str(report["assumptions"]))
         lines.append("")
 
@@ -371,7 +373,7 @@ def render_update_history(history: Any) -> list[str]:
     if not entries:
         return []
 
-    lines = ["## Update History\n"]
+    lines = [f"## {t('section.update_history')}\n"]
     for entry in entries:
         author = str(entry.get("agent_name") or entry.get("agent_id") or "an agent")
         raw_fields = entry.get("fields")

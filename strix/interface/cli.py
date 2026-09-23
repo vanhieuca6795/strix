@@ -17,6 +17,7 @@ from strix.config.settings import DEFAULT_MAX_TURNS
 from strix.core.runner import run_strix_scan
 from strix.report.state import ReportState, set_global_report_state
 from strix.runtime import session_manager
+from strix.utils.labels import t
 
 from .utils import (
     build_live_stats_text,
@@ -42,27 +43,29 @@ async def run_cli(args: Any) -> None:  # noqa: PLR0915
     console = Console()
 
     start_text = Text()
-    start_text.append("Penetration test initiated", style="bold #22c55e")
+    start_text.append(t("ui.initiated"), style="bold #22c55e")
 
     target_text = Text()
-    target_text.append("Target", style="dim")
+    target_text.append(t("ui.target"), style="dim")
     target_text.append("  ")
     if len(args.targets_info) == 1:
         target_text.append(args.targets_info[0]["original"], style="bold white")
     else:
-        target_text.append(f"{len(args.targets_info)} targets", style="bold white")
+        target_text.append(
+            f"{len(args.targets_info)} {t('ui.targets_count')}", style="bold white"
+        )
         for target_info in args.targets_info:
             target_text.append("\n        ")
             target_text.append(target_info["original"], style="white")
 
     results_text = Text()
-    results_text.append("Output", style="dim")
+    results_text.append(t("ui.output"), style="dim")
     results_text.append("  ")
     results_text.append(f"strix_runs/{args.run_name}", style="#60a5fa")
 
     note_text = Text()
     note_text.append("\n\n", style="dim")
-    note_text.append("Vulnerabilities will be displayed in real-time.", style="dim")
+    note_text.append(t("ui.vulns_realtime"), style="dim")
 
     startup_panel = Panel(
         Text.assemble(
@@ -110,7 +113,7 @@ async def run_cli(args: Any) -> None:  # noqa: PLR0915
 
         vuln_text = format_vulnerability_report(report)
 
-        suffix = " (updated)" if updated else ""
+        suffix = f" ({t('detail.updated')})" if updated else ""
         vuln_panel = Panel(
             vuln_text,
             title=f"[bold red]{report_id.upper()}{suffix}",
@@ -234,14 +237,14 @@ async def run_cli(args: Any) -> None:  # noqa: PLR0915
                     await session_manager.cleanup(args.run_name)
 
     except Exception as e:
-        console.print(f"[bold red]Error during penetration test:[/] {e}")
+        console.print(f"[bold red]{t('ui.error_during_test')}:[/] {e}")
         raise
 
     if report_state.final_scan_result:
         console.print()
 
         final_report_text = Text()
-        final_report_text.append("Penetration test summary", style="bold #60a5fa")
+        final_report_text.append(t("report.summary"), style="bold #60a5fa")
 
         final_report_panel = Panel(
             Text.assemble(
