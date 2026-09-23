@@ -110,6 +110,9 @@ class ContextSettings(BaseSettings):
     # một lát cắt chính xác của output lệnh thật đã quan sát, thay vì chỉ cần
     # "không rỗng". Tắt khi scan không chạy lệnh (whitebox thuần đọc source).
     evidence_grounding: bool = Field(default=True, alias="STRIX_EVIDENCE_GROUNDING")
+    # Trần số agent con chạy song song. Mỗi agent là một Chromium (~340 MB) cộng
+    # context riêng, nên máy nhỏ dễ OOM giữa lúc quét. Đặt 0 để không giới hạn.
+    max_concurrent_agents: int = Field(default=3, ge=0, alias="STRIX_MAX_CONCURRENT_AGENTS")
 
 
 class RuntimeSettings(BaseSettings):

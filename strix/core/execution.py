@@ -340,6 +340,52 @@ async def _run_agent_loop(
             )
 
 
+async def _concurrency_limit_error(
+    coordinator: AgentCoordinator, requested_name: str
+) -> dict[str, Any] | None:
+    """Từ chối spawn khi đã chạm trần agent con chạy song song.
+
+    Trả về dict lỗi để model thấy và tự điều chỉnh (chờ agent cũ xong, hoặc tự
+    làm phần việc đó), thay vì để tiến trình chết vì hết RAM.
+
+    Đặt STRIX_MAX_CONCURRENT_AGENTS=0 để tắt giới hạn.
+    """
+    try:
+        from strix.config.loader import load_settings
+
+        limit = load_settings().context.max_concurrent_agents
+    except Exception:  # noqa: BLE001 - không chặn spawn vì lỗi đọc cấu hình
+        return None
+
+    if limit <= 0:
+        return None
+
+    active = await coordinator.active_agents_except(agent_id="")
+    if len(active) < limit:
+        return None
+
+    running = ", ".join(str(agent.get("name") or agent.get("agent_id")) for agent in active)
+    logger.warning(
+        "Refused to spawn %r: %d agent(s) already running (limit %d)",
+        requested_name,
+        len(active),
+        limit,
+    )
+    return {
+        "success": False,
+        "error": (
+            f"Concurrency limit reached ({len(active)}/{limit} agents running). "
+            f"Cannot spawn '{requested_name}' right now."
+        ),
+        "running_agents": running,
+        "limit": limit,
+        "hint": (
+            "Wait for a running agent to finish (wait_for_agents), or do this "
+            "work in your own turn. Raise STRIX_MAX_CONCURRENT_AGENTS to allow more."
+        ),
+    }
+
+
 async def spawn_child_agent(
     *,
     coordinator: AgentCoordinator,
@@ -360,6 +406,10 @@ async def spawn_child_agent(
     parent_id = parent_ctx.get("agent_id")
     if not isinstance(parent_id, str):
         raise TypeError("Parent agent_id missing from context")
+
+    limit_error = await _concurrency_limit_error(coordinator, name)
+    if limit_error is not None:
+        return limit_error
 
     child_id = uuid.uuid4().hex[:8]
     child_agent = factory(name=name, skills=skills)
