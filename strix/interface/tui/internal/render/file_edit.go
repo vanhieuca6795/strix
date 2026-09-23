@@ -1,6 +1,7 @@
 package render
 
 import (
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strings"
 )
 
@@ -124,7 +125,7 @@ func renderApplyPatch(args map[string]any, result any, status string) string {
 		if s, ok := result.(string); ok && strings.TrimSpace(s) != "" {
 			b.WriteString("\n  " + Dim().Render(strings.TrimSpace(s)))
 		} else if result == nil {
-			b.WriteString(" " + Dim().Render("Processing..."))
+			b.WriteString(" " + Dim().Render(i18n.T("Processing...")))
 		}
 		return b.String()
 	}

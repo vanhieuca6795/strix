@@ -1,6 +1,7 @@
 package render
 
 import (
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strings"
 )
 
@@ -11,11 +12,11 @@ import (
 func renderThink(args map[string]any) string {
 	thought := StringValue(args["thought"])
 	var b strings.Builder
-	b.WriteString("🧠 " + Bold(Purple).Render("Thinking") + "\n  ")
+	b.WriteString("🧠 " + Bold(Purple).Render(i18n.T("Thinking")) + "\n  ")
 	if thought != "" {
 		b.WriteString(Dim().Italic(true).Render(thought))
 	} else {
-		b.WriteString(Dim().Italic(true).Render("Thinking..."))
+		b.WriteString(Dim().Italic(true).Render(i18n.T("Thinking...")))
 	}
 	return b.String()
 }
@@ -23,7 +24,7 @@ func renderThink(args map[string]any) string {
 func renderWebSearch(args map[string]any) string {
 	query := StringValue(args["query"])
 	var b strings.Builder
-	b.WriteString("🌐 " + Bold(InfoBlue).Render("Searching the web..."))
+	b.WriteString("🌐 " + Bold(InfoBlue).Render(i18n.T("Searching the web...")))
 	if query != "" {
 		b.WriteString("\n  " + Dim().Render(query))
 	}
@@ -46,7 +47,7 @@ func renderLoadSkill(args map[string]any, result any) string {
 	if requested != "" {
 		b.WriteString(" " + Col(Emerald).Render(requested))
 	} else if result == nil {
-		b.WriteString("\n  " + Dim().Render("Loading..."))
+		b.WriteString("\n  " + Dim().Render(i18n.T("Loading...")))
 	}
 	return b.String()
 }

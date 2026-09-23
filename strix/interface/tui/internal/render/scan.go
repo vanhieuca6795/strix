@@ -1,6 +1,7 @@
 package render
 
 import (
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strings"
 )
 
@@ -10,8 +11,9 @@ import (
 
 func renderFinishScan(args map[string]any) string {
 	var b strings.Builder
-	b.WriteString(Col(Green).Render("◆ ") + Bold(Green).Render("Penetration test completed"))
+	b.WriteString(Col(Green).Render("◆ ") + Bold(Green).Render(i18n.T("Penetration test completed")))
 	section := func(label, value string) {
+		label = i18n.T(label)
 		if value != "" {
 			b.WriteString("\n\n" + Bold(Field).Render(label) + "\n" + value)
 		}
@@ -25,7 +27,7 @@ func renderFinishScan(args map[string]any) string {
 	section("Technical Analysis", ta)
 	section("Recommendations", re)
 	if es == "" && me == "" && ta == "" && re == "" {
-		b.WriteString("\n  " + Dim().Render("Generating final report..."))
+		b.WriteString("\n  " + Dim().Render(i18n.T("Generating final report...")))
 	}
 	return "\n\n" + b.String() + "\n\n"
 }

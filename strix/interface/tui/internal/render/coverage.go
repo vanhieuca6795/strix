@@ -1,6 +1,7 @@
 package render
 
 import (
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strconv"
 	"strings"
 
@@ -133,9 +134,9 @@ func coverageListBody(b *strings.Builder, result map[string]any) {
 	total, _ := NumericValue(result["total_count"])
 	if len(entries) == 0 {
 		if int(total) == 0 {
-			b.WriteString("\n  " + Dim().Render("No surfaces recorded yet"))
+			b.WriteString("\n  " + Dim().Render(i18n.T("No surfaces recorded yet")))
 		} else {
-			b.WriteString("\n  " + Dim().Render("No surfaces match this filter"))
+			b.WriteString("\n  " + Dim().Render(i18n.T("No surfaces match this filter")))
 		}
 		return
 	}

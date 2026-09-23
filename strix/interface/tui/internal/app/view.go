@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"os"
 	"sort"
 	"strconv"
@@ -400,11 +401,11 @@ func (m Model) splashView() string {
 		}
 		start.WriteString(lipgloss.NewStyle().Foreground(color).Bold(bold).Render(string(char)))
 	}
-	welcome := lipgloss.NewStyle().Bold(true).Foreground(white).Render("Welcome to ") +
+	welcome := lipgloss.NewStyle().Bold(true).Foreground(white).Render(i18n.T("Welcome to ")) +
 		lipgloss.NewStyle().Bold(true).Foreground(green).Render("Strix") +
 		lipgloss.NewStyle().Bold(true).Foreground(white).Render("!")
 	version := lipgloss.NewStyle().Foreground(white).Faint(true).Render("v" + appVersion)
-	tagline := lipgloss.NewStyle().Foreground(white).Faint(true).Render("Open-source AI hackers for your apps")
+	tagline := lipgloss.NewStyle().Foreground(white).Faint(true).Render(i18n.T("Open-source AI hackers for your apps"))
 	url := lipgloss.NewStyle().Bold(true).Foreground(green).Render("strix.ai")
 	// The wordmark is shared with the launch screen so the two read as one moment.
 	content := wordmark() + "\n\n" +
@@ -603,9 +604,9 @@ func (m Model) viewerView(width int) string {
 		}
 		return status
 	case "unavailable":
-		return truncate(lipgloss.NewStyle().Foreground(amber).Render("Viewer UI not built"), width)
+		return truncate(lipgloss.NewStyle().Foreground(amber).Render(i18n.T("Viewer UI not built")), width)
 	case "failed":
-		return truncate(lipgloss.NewStyle().Foreground(red).Render("Viewer failed to start"), width)
+		return truncate(lipgloss.NewStyle().Foreground(red).Render(i18n.T("Viewer failed to start")), width)
 	default:
 		return truncate(lipgloss.NewStyle().Foreground(textColor).Render("▶ Watch live in browser"), width)
 	}
@@ -621,7 +622,7 @@ func (m Model) statsView() string {
 		if b.Len() > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(lipgloss.NewStyle().Foreground(green).Render("ChatGPT subscription"))
+		b.WriteString(lipgloss.NewStyle().Foreground(green).Render(i18n.T("ChatGPT subscription")))
 	}
 	total := numberValue(m.snapshot.Usage["total_tokens"])
 	if total > 0 {
@@ -799,22 +800,22 @@ func (m Model) statusView(width int) string {
 			if m.agentHasEvents(agent.ID) {
 				left = m.sweepView() + lipgloss.NewStyle().Foreground(white).Render("esc") + lipgloss.NewStyle().Foreground(dim).Render(" ") + lipgloss.NewStyle().Foreground(dim).Render("stop")
 			} else {
-				left = m.sweepView() + lipgloss.NewStyle().Foreground(white).Render("Initializing")
+				left = m.sweepView() + lipgloss.NewStyle().Foreground(white).Render(i18n.T("Initializing"))
 			}
 			right = quitHint
 		case "waiting":
-			left = lipgloss.NewStyle().Foreground(dim).Render("Send message to resume")
+			left = lipgloss.NewStyle().Foreground(dim).Render(i18n.T("Send message to resume"))
 			if msg := agent.ErrorMessage; msg != "" {
 				left = statusMessage(msg, red, " · Send message to resume", width)
 			}
 		case "budget_paused":
-			left = lipgloss.NewStyle().Foreground(amber).Render("Budget limit reached") +
+			left = lipgloss.NewStyle().Foreground(amber).Render(i18n.T("Budget limit reached")) +
 				lipgloss.NewStyle().Foreground(dim).Render(" · Send a message to continue")
 			right = quitHint
 		case "completed":
-			left = lipgloss.NewStyle().Foreground(mid).Render("Agent completed")
+			left = lipgloss.NewStyle().Foreground(mid).Render(i18n.T("Agent completed"))
 		case "stopped":
-			left = lipgloss.NewStyle().Foreground(mid).Render("Agent stopped")
+			left = lipgloss.NewStyle().Foreground(mid).Render(i18n.T("Agent stopped"))
 		case "failed", "crashed":
 			msg := agent.ErrorMessage
 			if msg == "" {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"net"
 	"regexp"
 	"strings"
@@ -368,7 +369,7 @@ func (m Model) setupHeaderView(fit setupFit) string {
 		rows = append(rows, center.Render(lipgloss.NewStyle().Bold(true).Foreground(brightGreen).Render("STRIX")))
 	}
 	if fit.tagline {
-		rows = append(rows, center.Render(render.Dim().Render("Open-source AI hackers for your apps")))
+		rows = append(rows, center.Render(render.Dim().Render(i18n.T("Open-source AI hackers for your apps"))))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -458,7 +459,7 @@ func (m Model) setupTargetsView(width int) string {
 	}
 	const visible = 4
 	total := max(m.snapshot.TargetCount, len(m.snapshot.Targets))
-	rows := []string{render.Bold(green).Render("Targets") + render.Dim().Render(fmt.Sprintf(" %d", total))}
+	rows := []string{render.Bold(green).Render(i18n.T("Targets")) + render.Dim().Render(fmt.Sprintf(" %d", total))}
 	for _, target := range m.snapshot.Targets[:min(visible, len(m.snapshot.Targets))] {
 		rows = append(rows, render.Col(dim).Render("▸ ")+render.Col(white).Render(truncate(target, max(1, width-2))))
 	}

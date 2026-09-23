@@ -1,6 +1,7 @@
 package render
 
 import (
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -53,7 +54,7 @@ func renderTodo(name string, result any) string {
 func formatTodoLines(b *strings.Builder, result map[string]any) {
 	todos, ok := result["todos"].([]any)
 	if !ok || len(todos) == 0 {
-		b.WriteString("\n  " + Dim().Render("No todos"))
+		b.WriteString("\n  " + Dim().Render(i18n.T("No todos")))
 		return
 	}
 	for _, t := range todos {

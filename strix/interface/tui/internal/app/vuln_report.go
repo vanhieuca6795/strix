@@ -6,6 +6,7 @@ package app
 
 import (
 	"fmt"
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"regexp"
 	"strings"
 
@@ -98,6 +99,7 @@ func vulnerabilityMarkdownReport(v map[string]any) string {
 	lines = append(lines, "", "## Description", "", description)
 
 	section := func(label, value string) {
+		label = i18n.T(label)
 		if value != "" {
 			lines = append(lines, "", "## "+label, "", value)
 		}

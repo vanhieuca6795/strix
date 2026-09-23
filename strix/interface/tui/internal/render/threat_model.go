@@ -1,6 +1,7 @@
 package render
 
 import (
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strconv"
 	"strings"
 )
@@ -69,7 +70,7 @@ func renderThreatModel(name string, args map[string]any, result any) string {
 
 func threatModelReadBody(b *strings.Builder, result map[string]any) {
 	if !truthy(result["found"]) {
-		b.WriteString("\n  " + Dim().Render("No model derived for this target yet"))
+		b.WriteString("\n  " + Dim().Render(i18n.T("No model derived for this target yet")))
 		return
 	}
 	if amendments, ok := result["amendments"].([]any); ok && len(amendments) > 0 {

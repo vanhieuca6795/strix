@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -67,11 +68,11 @@ func renderReport(args map[string]any, result any, heading, pending string) stri
 	field("Title", title)
 
 	if sev := StringValue(resultMap["severity"]); sev != "" {
-		b.WriteString("\n\n" + Bold(Field).Render("Severity: ") +
+		b.WriteString("\n\n" + Bold(Field).Render(i18n.T("Severity: ")) +
 			lipgloss.NewStyle().Bold(true).Foreground(SeverityColor(sev)).Render(strings.ToUpper(sev)))
 	}
 	if score, ok := NumericValue(resultMap["cvss_score"]); ok {
-		b.WriteString("\n\n" + Bold(Field).Render("CVSS Score: ") +
+		b.WriteString("\n\n" + Bold(Field).Render(i18n.T("CVSS Score: ")) +
 			lipgloss.NewStyle().Bold(true).Foreground(CVSSColor(score)).Render(StringValue(resultMap["cvss_score"])))
 	}
 	field("Target", StringValue(args["target"]))
@@ -83,17 +84,18 @@ func renderReport(args map[string]any, result any, heading, pending string) stri
 	if bd, ok := args["cvss_breakdown"].(map[string]any); ok && len(bd) > 0 {
 		parts := CVSSVectorParts(bd)
 		if len(parts) > 0 {
-			b.WriteString("\n\n" + Bold(Field).Render("CVSS Vector: ") + Dim().Render(strings.Join(parts, "/")))
+			b.WriteString("\n\n" + Bold(Field).Render(i18n.T("CVSS Vector: ")) + Dim().Render(strings.Join(parts, "/")))
 		}
 	}
 
 	section := func(label, value string) {
+		label = i18n.T(label)
 		if value != "" {
 			b.WriteString("\n\n" + Bold(Field).Render(label) + "\n" + value)
 		}
 	}
 	if confidence := StringValue(args["confidence"]); confidence != "" {
-		b.WriteString("\n\n" + Bold(Field).Render("Confidence: ") +
+		b.WriteString("\n\n" + Bold(Field).Render(i18n.T("Confidence: ")) +
 			lipgloss.NewStyle().Bold(true).Foreground(confidenceColor(confidence)).
 				Render(strings.ToUpper(confidence)))
 		if rationale := StringValue(args["confidence_rationale"]); rationale != "" {
@@ -112,7 +114,7 @@ func renderReport(args map[string]any, result any, heading, pending string) stri
 	renderCodeLocations(&b, args["code_locations"])
 	section("PoC Description", StringValue(args["poc_description"]))
 	if poc := StringValue(args["poc_script_code"]); poc != "" {
-		b.WriteString("\n\n" + Bold(Field).Render("PoC Code") + "\n" + Col(Text).Render(poc))
+		b.WriteString("\n\n" + Bold(Field).Render(i18n.T("PoC Code")) + "\n" + Col(Text).Render(poc))
 	}
 	section("Remediation", StringValue(args["remediation_steps"]))
 	// Any applyable fix above is one click from the user's codebase, so how it
@@ -160,7 +162,7 @@ func renderCodeLocations(b *strings.Builder, raw any) {
 	if !ok || len(locs) == 0 {
 		return
 	}
-	b.WriteString("\n\n" + Bold(Field).Render("Code Locations"))
+	b.WriteString("\n\n" + Bold(Field).Render(i18n.T("Code Locations")))
 	for i, l := range locs {
 		loc, ok := l.(map[string]any)
 		if !ok {

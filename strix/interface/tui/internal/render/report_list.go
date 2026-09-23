@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -71,7 +72,7 @@ func renderListReports(result any) string {
 	resultMap, _ := result.(map[string]any)
 	success, _ := resultMap["success"].(bool)
 	if !success {
-		b.WriteString("\n  " + Dim().Render("Loading..."))
+		b.WriteString("\n  " + Dim().Render(i18n.T("Loading...")))
 		return b.String()
 	}
 
@@ -89,7 +90,7 @@ func renderListReports(result any) string {
 
 	reports, _ := resultMap["reports"].([]any)
 	if len(reports) == 0 {
-		b.WriteString("\n  " + Dim().Render("No reports filed yet"))
+		b.WriteString("\n  " + Dim().Render(i18n.T("No reports filed yet")))
 		return b.String()
 	}
 	for _, raw := range reports {

@@ -1,6 +1,7 @@
 package render
 
 import (
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strings"
 )
 
@@ -26,7 +27,7 @@ func renderNote(name string, args map[string]any, result any) string {
 			b.WriteString("\n  " + Dim().Render(content))
 		}
 		if title == "" && content == "" {
-			b.WriteString("\n  " + Dim().Render("Capturing..."))
+			b.WriteString("\n  " + Dim().Render(i18n.T("Capturing...")))
 		}
 	case "delete_note":
 		b.WriteString(icon + Dim().Render("note removed"))
@@ -40,7 +41,7 @@ func renderNote(name string, args map[string]any, result any) string {
 			b.WriteString("\n  " + Dim().Render(content))
 		}
 		if title == "" && content == "" {
-			b.WriteString("\n  " + Dim().Render("Updating..."))
+			b.WriteString("\n  " + Dim().Render(i18n.T("Updating...")))
 		}
 	case "list_notes":
 		b.WriteString(icon + Dim().Render("notes"))
@@ -51,7 +52,7 @@ func renderNote(name string, args map[string]any, result any) string {
 			note, _ := m["note"].(map[string]any)
 			renderSingleNote(&b, note)
 		} else {
-			b.WriteString("\n  " + Dim().Render("Loading..."))
+			b.WriteString("\n  " + Dim().Render(i18n.T("Loading...")))
 		}
 	default:
 		b.WriteString(icon + Dim().Render(strings.ReplaceAll(name, "_", " ")))
@@ -66,12 +67,12 @@ func noteListBody(result any) string {
 	}
 	m, ok := result.(map[string]any)
 	if !ok || !truthy(m["success"]) {
-		return "\n  " + Dim().Render("Loading...")
+		return "\n  " + Dim().Render(i18n.T("Loading..."))
 	}
 	notes, _ := m["notes"].([]any)
 	count, _ := NumericValue(m["total_count"])
 	if int(count) == 0 || len(notes) == 0 {
-		return "\n  " + Dim().Render("No notes")
+		return "\n  " + Dim().Render(i18n.T("No notes"))
 	}
 	for _, n := range notes {
 		note, _ := n.(map[string]any)

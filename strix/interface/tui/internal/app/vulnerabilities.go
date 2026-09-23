@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -191,7 +192,7 @@ func (m *Model) keepVulnerabilitySelectionInWindow() {
 func (m Model) modalView() string {
 	switch m.modal {
 	case modalHelp:
-		title := lipgloss.NewStyle().Bold(true).Foreground(green).Width(34).Align(lipgloss.Center).Render("Strix Help")
+		title := lipgloss.NewStyle().Bold(true).Foreground(green).Width(34).Align(lipgloss.Center).Render(i18n.T("Strix Help"))
 		body := lipgloss.NewStyle().Foreground(textColor).Render("F1        Help\nCtrl+O    Open viewer\nCtrl+Q/C  Quit\nESC       Stop Agent\nEnter     Send / expand node\nCtrl+J    Newline in message\nTab       Switch panels\n↑/↓       Navigate tree\nDrag      Select & copy text\nClick     Expand/collapse tool")
 		content := title + "\n\n" + body
 		return lipgloss.NewStyle().Width(38).Border(lipgloss.RoundedBorder()).BorderForeground(green).Background(black).Padding(1, 2).Render(content)
@@ -320,7 +321,7 @@ func (m Model) confirmDialog(
 func vulnerabilityBody(v map[string]any) string {
 	fieldStyle := render.Bold(render.Field)
 	var b strings.Builder
-	b.WriteString("🐞 " + render.Bold(render.ReportHdr).Render("Vulnerability Report"))
+	b.WriteString("🐞 " + render.Bold(render.ReportHdr).Render(i18n.T("Vulnerability Report")))
 
 	field := func(label, value string) {
 		if value != "" {
@@ -330,11 +331,11 @@ func vulnerabilityBody(v map[string]any) string {
 	field("Agent", render.StringValue(v["agent_name"]))
 	field("Title", render.StringValue(v["title"]))
 	if sev := render.StringValue(v["severity"]); sev != "" {
-		b.WriteString("\n\n" + fieldStyle.Render("Severity: ") +
+		b.WriteString("\n\n" + fieldStyle.Render(i18n.T("Severity: ")) +
 			lipgloss.NewStyle().Bold(true).Foreground(render.SeverityColor(sev)).Render(strings.ToUpper(sev)))
 	}
 	if score, ok := render.NumericValue(v["cvss"]); ok {
-		b.WriteString("\n\n" + fieldStyle.Render("CVSS Score: ") +
+		b.WriteString("\n\n" + fieldStyle.Render(i18n.T("CVSS Score: ")) +
 			lipgloss.NewStyle().Bold(true).Foreground(render.CVSSColor(score)).Render(render.StringValue(v["cvss"])))
 	}
 	field("Target", render.StringValue(v["target"]))
@@ -355,11 +356,12 @@ func vulnerabilityBody(v map[string]any) string {
 	}
 	if bd, ok := v["cvss_breakdown"].(map[string]any); ok && len(bd) > 0 {
 		if parts := render.CVSSVectorParts(bd); len(parts) > 0 {
-			b.WriteString("\n\n" + fieldStyle.Render("CVSS Vector: ") + render.Dim().Render(strings.Join(parts, "/")))
+			b.WriteString("\n\n" + fieldStyle.Render(i18n.T("CVSS Vector: ")) + render.Dim().Render(strings.Join(parts, "/")))
 		}
 	}
 
 	section := func(label, value string) {
+		label = i18n.T(label)
 		if value != "" {
 			b.WriteString("\n\n" + fieldStyle.Render(label) + "\n" + value)
 		}
@@ -371,7 +373,7 @@ func vulnerabilityBody(v map[string]any) string {
 	section("PoC Description", render.StringValue(v["poc_description"]))
 	if poc := render.StringValue(v["poc_script_code"]); poc != "" {
 		pocLang, pocCode := render.ParseFencedCode(poc)
-		b.WriteString("\n\n" + fieldStyle.Render("PoC Code") + "\n" + render.HighlightCode(pocCode, pocLang))
+		b.WriteString("\n\n" + fieldStyle.Render(i18n.T("PoC Code")) + "\n" + render.HighlightCode(pocCode, pocLang))
 	}
 	section("Remediation", render.StringValue(v["remediation_steps"]))
 	section("Assumptions", render.StringValue(v["assumptions"]))

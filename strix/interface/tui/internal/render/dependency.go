@@ -1,6 +1,7 @@
 package render
 
 import (
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -17,7 +18,7 @@ func renderDependencyReport(args map[string]any, result any) string {
 		}
 	}
 	var b strings.Builder
-	b.WriteString("📦 " + Bold(ReportHdr).Render("Dependency (SCA) Report"))
+	b.WriteString("📦 " + Bold(ReportHdr).Render(i18n.T("Dependency (SCA) Report")))
 	field := func(label, value string) {
 		if value != "" {
 			b.WriteString("\n\n" + Bold(Field).Render(label+": ") + value)
@@ -26,30 +27,31 @@ func renderDependencyReport(args map[string]any, result any) string {
 	title := StringValue(args["title"])
 	field("Title", title)
 	if sev := StringValue(resultMap["severity"]); sev != "" {
-		b.WriteString("\n\n" + Bold(Field).Render("Severity: ") +
+		b.WriteString("\n\n" + Bold(Field).Render(i18n.T("Severity: ")) +
 			lipgloss.NewStyle().Bold(true).Foreground(SeverityColor(sev)).Render(strings.ToUpper(sev)))
 	}
 	if score, ok := NumericValue(args["advisory_cvss"]); ok {
-		b.WriteString("\n\n" + Bold(Field).Render("Advisory CVSS: ") +
+		b.WriteString("\n\n" + Bold(Field).Render(i18n.T("Advisory CVSS: ")) +
 			lipgloss.NewStyle().Bold(true).Foreground(CVSSColor(score)).Render(StringValue(args["advisory_cvss"])))
 	}
 	field("CVE", StringValue(args["cve"]))
 	field("CWE", StringValue(args["cwe"]))
 	if pkg := StringValue(args["package_name"]); pkg != "" {
-		b.WriteString("\n\n" + Bold(Field).Render("Package: ") + Bold(InfoBlue).Render(pkg))
+		b.WriteString("\n\n" + Bold(Field).Render(i18n.T("Package: ")) + Bold(InfoBlue).Render(pkg))
 		if eco := StringValue(args["package_ecosystem"]); eco != "" {
 			b.WriteString(Dim().Render(" (" + eco + ")"))
 		}
 	}
 	if inst := StringValue(args["installed_version"]); inst != "" {
-		b.WriteString("\n\n" + Bold(Field).Render("Installed: ") + Col(Red).Render(inst))
+		b.WriteString("\n\n" + Bold(Field).Render(i18n.T("Installed: ")) + Col(Red).Render(inst))
 		if fixed := StringValue(args["fixed_version"]); fixed != "" {
-			b.WriteString(Dim().Render("  →  ") + Bold(Field).Render("Fixed: ") + Col(Green).Render(fixed))
+			b.WriteString(Dim().Render("  →  ") + Bold(Field).Render(i18n.T("Fixed: ")) + Col(Green).Render(fixed))
 		}
 	}
 	field("Fix Effort", StringValue(args["fix_effort"]))
 	field("Target", StringValue(args["target"]))
 	section := func(label, value string) {
+		label = i18n.T(label)
 		if value != "" {
 			b.WriteString("\n\n" + Bold(Field).Render(label) + "\n" + value)
 		}
@@ -58,7 +60,7 @@ func renderDependencyReport(args map[string]any, result any) string {
 	section("Impact", StringValue(args["impact"]))
 	section("Technical Analysis", StringValue(args["technical_analysis"]))
 	if reach := StringValue(args["reachability"]); reach != "" && reach != "unknown" {
-		b.WriteString("\n\n" + Bold(Field).Render("Usage evidence: ") + reach)
+		b.WriteString("\n\n" + Bold(Field).Render(i18n.T("Usage evidence: ")) + reach)
 		if ev := StringValue(args["reachability_evidence"]); ev != "" {
 			b.WriteString("\n" + ev)
 		}
@@ -66,16 +68,16 @@ func renderDependencyReport(args map[string]any, result any) string {
 	section("Assumptions", StringValue(args["assumptions"]))
 	section("Remediation", StringValue(args["remediation_steps"]))
 	if title == "" {
-		b.WriteString("\n  " + Dim().Render("Creating dependency report..."))
+		b.WriteString("\n  " + Dim().Render(i18n.T("Creating dependency report...")))
 	}
 	return "\n\n" + b.String() + "\n\n"
 }
 
 func renderDependencyUnsuccessful(args, result map[string]any) string {
 	var b strings.Builder
-	b.WriteString("📦 " + Bold(ReportHdr).Render("Dependency (SCA) Report"))
+	b.WriteString("📦 " + Bold(ReportHdr).Render(i18n.T("Dependency (SCA) Report")))
 	if title := StringValue(args["title"]); title != "" {
-		b.WriteString("\n\n" + Bold(Field).Render("Title: ") + title)
+		b.WriteString("\n\n" + Bold(Field).Render(i18n.T("Title: ")) + title)
 	}
 	success, hasSuccess := result["success"].(bool)
 	var label, detail string

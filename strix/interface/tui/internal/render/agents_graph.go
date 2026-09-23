@@ -1,6 +1,7 @@
 package render
 
 import (
+	"github.com/usestrix/strix/tui/internal/i18n"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -40,9 +41,9 @@ func renderAgentGraphTool(name string, args map[string]any, result any) string {
 			success = v
 		}
 		if success {
-			b.WriteString(Col(Green).Render("◆ ") + Bold(Green).Render("Agent completed"))
+			b.WriteString(Col(Green).Render("◆ ") + Bold(Green).Render(i18n.T("Agent completed")))
 		} else {
-			b.WriteString(Col(Red).Render("◆ ") + Bold(Red).Render("Agent failed"))
+			b.WriteString(Col(Red).Render("◆ ") + Bold(Red).Render(i18n.T("Agent failed")))
 		}
 		if summary := StringValue(args["result_summary"]); summary != "" {
 			b.WriteString("\n  " + lipgloss.NewStyle().Bold(true).Render(summary))
@@ -52,7 +53,7 @@ func renderAgentGraphTool(name string, args map[string]any, result any) string {
 				}
 			}
 		} else {
-			b.WriteString("\n  " + Dim().Render("Completing task..."))
+			b.WriteString("\n  " + Dim().Render(i18n.T("Completing task...")))
 		}
 	case "wait_for_agents":
 		b.WriteString(Col(Gray).Render("○ ") + Dim().Render("waiting"))
