@@ -17,6 +17,7 @@ from agents import RunContextWrapper, function_tool
 from strix.runtime.caido_handle import CaidoBootstrapHandle
 from strix.tools.nullish import clean_optional
 from strix.tools.proxy import caido_api
+from strix.utils.scope_guard import check_target_in_scope
 
 
 logger = logging.getLogger(__name__)
@@ -387,6 +388,34 @@ def _format_text_page(content: str, *, page: int, page_size: int) -> dict[str, A
     }
 
 
+def _enforce_scope(ctx: RunContextWrapper, url: str, tool_name: str) -> str | None:
+    """Chặn một URL nằm ngoài phạm vi được uỷ quyền.
+
+    Trả về chuỗi JSON lỗi nếu vi phạm, hoặc ``None`` nếu hợp lệ. Đây là lớp
+    cưỡng chế ở tầng code, bổ sung cho phần scope trong prompt — prompt có thể
+    bị vượt qua bằng prompt injection, code thì không.
+
+    Không kết luận khi scan không khai báo target mạng nào (ví dụ quét source
+    code thuần), để không chặn oan.
+    """
+    inner = ctx.context if isinstance(getattr(ctx, "context", None), dict) else {}
+    targets = inner.get("scan_targets")
+    authorized = (
+        [t for t in targets if isinstance(t, str) and t.strip()]
+        if isinstance(targets, list)
+        else []
+    )
+
+    ok, reason = check_target_in_scope(url, authorized)
+    if ok:
+        return None
+    logger.warning("Scope guard blocked %s on %s: %s", tool_name, url, reason)
+    return json.dumps(
+        {"success": False, "error": "Out of authorized scope", "detail": reason},
+        ensure_ascii=False,
+    )
+
+
 @function_tool(timeout=120, strict_mode=False)
 async def repeat_request(
     ctx: RunContextWrapper,
@@ -432,6 +461,12 @@ async def repeat_request(
         components = caido_api.parse_raw_request(raw_str)
         full_url = caido_api.full_url_from_components(original, components, mods)
         modified = caido_api.apply_modifications(components, mods, full_url)
+
+        # Chặn trước khi gửi: modifications có thể thay hẳn URL sang host khác.
+        scope_error = _enforce_scope(ctx, str(modified["url"]), "repeat_request")
+        if scope_error is not None:
+            return scope_error
+
         connection, raw = caido_api.build_raw_request(
             method=modified["method"],
             url=modified["url"],

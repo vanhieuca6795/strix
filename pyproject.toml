@@ -260,6 +260,9 @@ ignore = [
 # _do_create có thêm một nhánh từ chối khi bằng chứng không kiểm chứng được;
 # phần phán quyết chi tiết đã tách sang _verify_evidence_grounding.
 "strix/tools/reporting/tool.py" = ["PLC0415", "TC002", "PLR0911"]
+# `canonicalize_target` / `_canonical_host_port` là chuỗi guard clause phòng vệ:
+# mỗi nhánh từ chối một dạng đầu vào gây nhập nhằng, gộp lại sẽ che mất lý do.
+"strix/utils/scope_guard.py" = ["PLR0911", "PLR0912"]
 # Lazy imports of strix.tools.mcp.client avoid a circular import (client imports
 # the session module at module load).
 "strix/tools/mcp/session.py" = ["PLC0415"]
