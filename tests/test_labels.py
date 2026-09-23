@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from strix.report.writer import _SEVERITY_ORDER
 from strix.utils.labels import (
+    _LABELS,
     DEFAULT_LANGUAGE,
     SUPPORTED_LANGUAGES,
     current_language,
@@ -51,7 +53,7 @@ class TestResolveLanguage:
         assert current_language() == "en"
 
     def test_supported_languages_contains_both(self) -> None:
-        assert SUPPORTED_LANGUAGES == frozenset({"en", "vi"})
+        assert frozenset({"en", "vi"}) == SUPPORTED_LANGUAGES
         assert DEFAULT_LANGUAGE == "en"
 
 
@@ -80,8 +82,6 @@ class TestTranslation:
         assert t("section.impact") == "Tác động"
 
     def test_all_keys_have_both_languages(self) -> None:
-        from strix.utils.labels import _LABELS
-
         missing: list[str] = []
         for key, entry in _LABELS.items():
             if not entry.get("en") or not entry.get("vi"):
@@ -89,8 +89,6 @@ class TestTranslation:
         assert not missing, f"Nhãn thiếu bản dịch: {missing}"
 
     def test_all_vietnamese_values_have_diacritics_or_are_technical(self) -> None:
-        from strix.utils.labels import _LABELS
-
         diacritics = "ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ"
         # Hai nhóm được phép không có dấu:
         #  - thuật ngữ quốc tế giữ nguyên tiếng Anh (ID, Endpoint, Method…);
@@ -140,8 +138,6 @@ class TestSeverityLabel:
         # Điểm mấu chốt: dịch chỉ ở lớp hiển thị. Khoá chuẩn không đổi, nên
         # SARIF/CSV và so sánh vẫn hoạt động.
         set_language("vi")
-        from strix.report.writer import _SEVERITY_ORDER
-
         assert set(_SEVERITY_ORDER.keys()) == {"critical", "high", "medium", "low", "info"}
 
 

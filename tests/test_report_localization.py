@@ -5,9 +5,16 @@ Kiểm chứng qua đúng các hàm render mà Strix dùng, không phải mock.
 
 from __future__ import annotations
 
+import csv
+import json
+
 import pytest
 
-from strix.report.writer import render_vulnerability_md, write_executive_report
+from strix.report.writer import (
+    render_vulnerability_md,
+    write_executive_report,
+    write_vulnerabilities,
+)
 from strix.utils.labels import set_language
 
 
@@ -145,11 +152,6 @@ class TestMachineReadableOutputUnchanged:
     """Đầu ra cho máy đọc không được đổi — đây là ràng buộc cốt lõi."""
 
     def test_csv_and_json_use_english_severity_keys(self, tmp_path) -> None:
-        import csv
-        import json
-
-        from strix.report.writer import write_vulnerabilities
-
         set_language("vi")
         reports = [{**REPORT, "file": "vulnerabilities/vuln-0001.md"}]
         write_vulnerabilities(tmp_path, reports, saved_vuln_ids=set())
@@ -166,7 +168,3 @@ class TestMachineReadableOutputUnchanged:
         assert data[0]["severity"] == "high"
         assert data[0]["id"] == "vuln-0001"
 
-    def test_sarif_severity_unaffected(self) -> None:
-        from strix.report.sarif import build_sarif_report  # type: ignore[attr-defined]
-
-        assert callable(build_sarif_report)

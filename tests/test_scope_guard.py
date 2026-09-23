@@ -194,7 +194,8 @@ class TestAuthorizedNetworkTargets:
         assert len(authorized_network_targets(authorized)) == 3
 
     def test_all_local_returns_empty(self) -> None:
-        assert authorized_network_targets(["/workspace/x", "/tmp/y"]) == []
+        local_paths = ["/workspace/x", "/tmp/y"]  # noqa: S108 - dữ liệu test
+        assert authorized_network_targets(local_paths) == []
 
     def test_skips_blank_and_non_string(self) -> None:
         assert authorized_network_targets(["", "  ", "/workspace/x"]) == []

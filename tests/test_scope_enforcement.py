@@ -6,6 +6,7 @@ Chạy qua đúng hàm `_enforce_scope` mà `repeat_request` gọi trước khi 
 from __future__ import annotations
 
 import json
+from typing import ClassVar
 
 from strix.tools.proxy.tools import _enforce_scope
 
@@ -73,7 +74,8 @@ class TestNoScopeMeansNoBlocking:
         assert _enforce_scope(ctx, "https://anywhere.example.com/", "repeat_request") is None
 
     def test_empty_targets_allows_all(self) -> None:
-        assert _enforce_scope(_FakeCtx([]), "https://anywhere.example.com/", "repeat_request") is None
+        ctx = _FakeCtx([])
+        assert _enforce_scope(ctx, "https://anywhere.example.com/", "repeat_request") is None
 
     def test_missing_key_allows_all(self) -> None:
         ctx = _FakeCtx(None)
@@ -84,7 +86,7 @@ class TestNoScopeMeansNoBlocking:
 
     def test_malformed_targets_type_allows_all(self) -> None:
         class _Bad:
-            context = {"scan_targets": "not-a-list"}
+            context: ClassVar[dict[str, str]] = {"scan_targets": "not-a-list"}
 
         assert _enforce_scope(_Bad(), "https://anywhere.example.com/", "repeat_request") is None
 
@@ -118,11 +120,17 @@ class TestMaliciousInputHandling:
 
     def test_encoded_traversal_blocked(self) -> None:
         ctx = _FakeCtx(["https://app.example.com"])
-        assert _enforce_scope(ctx, "https://app.example.com/%2e%2e/admin", "repeat_request") is not None
+        assert (
+            _enforce_scope(ctx, "https://app.example.com/%2e%2e/admin", "repeat_request")
+            is not None
+        )
 
     def test_backslash_obfuscation_blocked(self) -> None:
         ctx = _FakeCtx(["https://app.example.com"])
-        assert _enforce_scope(ctx, "https://app.example.com\\@evil.com", "repeat_request") is not None
+        assert (
+            _enforce_scope(ctx, "https://app.example.com\\@evil.com", "repeat_request")
+            is not None
+        )
 
     def test_control_chars_blocked(self) -> None:
         ctx = _FakeCtx(["https://app.example.com"])
