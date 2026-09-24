@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 import logging
 import os
@@ -19,6 +20,7 @@ from strix.config import load_settings
 from strix.runtime.backends import backend_supports_bind_mounts, get_backend
 from strix.runtime.caido_bootstrap import bootstrap_caido
 from strix.runtime.caido_handle import CaidoBootstrapHandle
+from strix.utils.tool_provisioner import start_provisioning
 
 
 if TYPE_CHECKING:
@@ -360,10 +362,16 @@ async def create_or_reuse(
         )
     )
 
+    # Cài thêm công cụ khai thác ở NỀN. Agent luôn mất vài lượt đầu cho recon,
+    # nên bộ công cụ thường sẵn sàng trước khi được gọi tới. Ghi trạng thái ra
+    # /workspace/.strix-toolchain.json để agent tự kiểm tra.
+    provision_task = start_provisioning(session)
+
     bundle = {
         "client": client,
         "session": session,
         "caido_client": caido_client,
+        "provision_task": provision_task,
     }
     _SESSION_CACHE[scan_id] = bundle
     logger.info("Sandbox session for scan %s ready and cached", scan_id)
@@ -397,6 +405,13 @@ async def cleanup(scan_id: str) -> None:
             await caido_client.aclose()
         except Exception:  # noqa: BLE001
             logger.debug("cleanup(%s): caido_client.aclose() raised", scan_id, exc_info=True)
+
+    provision_task = bundle.get("provision_task")
+    if provision_task is not None and not provision_task.done():
+        # Cho apt/pip kịp đóng lại thay vì bỏ dở giữa chừng; trần 20s để
+        # teardown không bị treo vì một lệnh cài chậm.
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(asyncio.shield(provision_task), timeout=20)
 
     client = bundle["client"]
     try:
