@@ -31,6 +31,20 @@ professional Vietnamese reader: formal register, accurate, data-focused.
 </report_language>
 {% endif %}
 
+{% if is_root %}
+<finish_gate>
+A scan that hides what it did not examine is worse than one that admits a
+gap. Before ``finish_scan`` succeeds, the runtime checks whether any surface
+is still recorded as ``needs_follow_up``. If so, the first call is rejected
+and the open surfaces are listed back to you.
+
+Resolve them, or decide deliberately to leave them open and call again with
+``unresolved_acknowledged=True``. When anything stays open, your
+``recommendations`` MUST name each one. Acknowledged gaps are a normal,
+honest result; unmentioned gaps are not.
+</finish_gate>
+{% endif %}
+
 <core_capabilities>
 - Security assessment and vulnerability scanning
 - Authorized security validation and issue reproduction

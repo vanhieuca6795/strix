@@ -83,6 +83,80 @@ def _do_finish(
         return result
 
 
+def _unresolved_gate(*, acknowledged: bool) -> dict[str, Any] | None:
+    """Từ chối kết thúc lần đầu khi còn bề mặt chưa giải quyết.
+
+    Không chặn vĩnh viễn: gọi lại với ``unresolved_acknowledged=True`` là qua.
+    Mục đích không phải cấm bỏ sót, mà là cấm bỏ sót MỘT CÁCH VÔ THỨC.
+    """
+    if acknowledged:
+        return None
+
+    try:
+        from strix.tools.coverage.tools import get_coverage_entries
+
+        entries = get_coverage_entries()
+    except Exception:  # noqa: BLE001 - cổng này là phụ trợ, không chặn oan vì lỗi
+        logger.debug("đọc coverage để kiểm cổng thất bại", exc_info=True)
+        return None
+
+    unresolved = [e for e in entries if e.get("outcome") == "needs_follow_up"]
+    if not unresolved:
+        return None
+
+    return {
+        "success": False,
+        "scan_completed": False,
+        "error": (
+            f"{len(unresolved)} surface(s) are still open as 'needs_follow_up'. "
+            "The scan is NOT finished - this is the last point where they can "
+            "still be worked on."
+        ),
+        "unresolved_surfaces": [
+            {
+                "surface": e.get("surface", ""),
+                "risk_area": e.get("risk_area", ""),
+                "evidence": str(e.get("evidence", ""))[:240],
+            }
+            for e in unresolved
+        ],
+        "next_step": (
+            "For each one, either (a) go resolve it now — you may have gained "
+            "the credentials, context, or reachability you lacked earlier — or "
+            "(b) decide deliberately that it stays open, then call finish_scan "
+            "again with unresolved_acknowledged=True. Your report MUST then "
+            "name each open surface in `recommendations` so the reader knows "
+            "what was left unexamined. Silently dropping them is the one "
+            "outcome this gate exists to prevent."
+        ),
+    }
+
+
+def _persist_unresolved_disclosure(result: dict[str, Any], *, acknowledged: bool) -> None:
+    """Ghi việc tồn đọng (đã xác nhận) vào bản ghi chạy.
+
+    Để báo cáo sinh ra sau này phản ánh được điều chưa làm, không chỉ điều đã làm.
+    """
+    unresolved = result.get("unresolved_surfaces") or []
+    if not unresolved:
+        return
+    try:
+        from strix.report.state import get_global_report_state
+
+        state = get_global_report_state()
+        if state is None:
+            return
+        state.run_record["unresolved_surfaces"] = unresolved
+        state.run_record["unresolved_acknowledged"] = bool(acknowledged)
+        logger.info(
+            "finish_scan: %d bề mặt chưa giải quyết, đã xác nhận=%s",
+            len(unresolved),
+            acknowledged,
+        )
+    except Exception:  # noqa: BLE001 - ghi nhận là phụ trợ
+        logger.debug("ghi nhận tồn đọng thất bại", exc_info=True)
+
+
 def _coverage_summary(agent_graph: dict[str, Any]) -> dict[str, Any]:
     """Coverage counts, unresolved surfaces, and gaps the runtime can see.
 
@@ -142,6 +216,7 @@ async def finish_scan(
     methodology: str,
     technical_analysis: str,
     recommendations: str,
+    unresolved_acknowledged: bool = False,
 ) -> str:
     """Finalize the scan — persist the customer-facing report.
 
@@ -205,6 +280,17 @@ async def finish_scan(
        surface has no entry at all, dispatch an agent to cover it or
        record it as ``needs_follow_up`` before finishing. The response
        from this tool reports coverage counts and any unresolved rows.
+
+    **Unresolved-surface gate (enforced, not advisory):**
+
+    If any surface is still recorded as ``needs_follow_up``, the FIRST call
+    fails and returns the list. This is deliberate: it is the last moment
+    those surfaces can still be worked. You then either resolve them, or
+    decide deliberately to leave them open and call again with
+    ``unresolved_acknowledged=True``. When you do, name every open surface
+    in ``recommendations`` — the reader of the report must be able to tell
+    what was examined and cleared from what was never examined at all.
+    Acknowledging is a legitimate outcome; leaving them unmentioned is not.
 
     **Calling this multiple times overwrites the previous report.**
     Make the single call comprehensive.
@@ -337,6 +423,10 @@ async def finish_scan(
             default=str,
         )
 
+    gate = _unresolved_gate(acknowledged=unresolved_acknowledged)
+    if gate is not None:
+        return json.dumps(gate, ensure_ascii=False, default=str)
+
     result = await asyncio.to_thread(
         _do_finish,
         parent_id=parent_id,
@@ -353,4 +443,7 @@ async def finish_scan(
         and isinstance(me, str)
     ):
         await coordinator.set_status(me, "completed")
+
+    if result.get("success") and result.get("scan_completed"):
+        _persist_unresolved_disclosure(result, acknowledged=unresolved_acknowledged)
     return json.dumps(result, ensure_ascii=False, default=str)

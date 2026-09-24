@@ -55,6 +55,9 @@ def _resolve_skills(
     ordered.append("tooling/python")
     ordered.append("analysis/counterevidence")
     ordered.append("analysis/severity_calibration")
+    # Chaining áp cho mọi agent có thể nộp phát hiện: giá trị thật của hai lỗ
+    # hổng nằm ở việc chúng ghép được với nhau hay không.
+    ordered.append("analysis/attack_chaining")
     if is_root:
         ordered.append("coordination/root_agent")
     if is_whitebox:
