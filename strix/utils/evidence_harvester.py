@@ -5,23 +5,41 @@ VẤN ĐỀ: sandbox là container dùng-một-lần. Mọi thứ agent tạo ra
 đều bị xoá sạch khi quét xong. Báo cáo chỉ còn lại phần CHỮ mà agent tự thuật.
 
 Hệ quả với người nhận báo cáo: họ được yêu cầu tin vào một đoạn văn, không có
-gì để tự mắt kiểm chứng. Với một phát hiện bảo mật, đó là điểm yếu chí mạng —
-chủ hệ thống cần thấy tận mắt, không phải đọc lời kể.
+gì để tự mắt kiểm chứng. Với một phát hiện bảo mật, đó là điểm yếu chí mạng.
 
-Module này chạy NGAY TRƯỚC khi container bị xoá, copy bằng chứng thật ra
-``run_dir/evidence/`` để nó sống sót và tới được tay người nhận.
+================================================================================
+BÀI HỌC ĐÃ TRẢ GIÁ VỀ API CỦA SDK (đọc trước khi sửa file này)
+================================================================================
 
-Nguyên tắc:
-- **Không bao giờ làm hỏng cuộc quét.** Mọi lỗi đều bị nuốt và ghi log; thu
-  hoạch là việc phụ trợ, không phải điều kiện thành công.
-- **Chỉ đọc.** Không sửa, không xoá gì trong sandbox.
-- **Có trần.** Giới hạn số file và tổng dung lượng, tránh kéo về hàng GB.
+Lần đầu tôi dùng ``session.extract(path, buf, compression_scheme="tar")`` và
+tưởng nó KÉO file ra. Sai hoàn toàn. Đo thực tế trong log:
+
+    extract(/workspace/.agent-browser-screenshots) thất bại:
+        failed to write archive for path: /workspace/.agent-browser-screenshots
+    extract(/workspace) thất bại: manifest path must be relative: /
+
+``extract`` là chiều NGƯỢC LẠI — nó GIẢI NÉN một archive VÀO trong sandbox
+(upload). Không có gì được kéo ra, nên thu hoạch luôn ra 0 file.
+
+Chiều đúng để LẤY dữ liệu ra:
+
+- ``session.persist_workspace() -> io.IOBase``
+  Trả về một **tar stream của toàn bộ workspace**, với đường dẫn thành viên
+  tương đối so với workspace root. Một lượt gọi, lấy hết cây. Đây là thứ dùng
+  cho chứng cứ.
+- ``session.read(path) -> io.IOBase``
+  Đọc MỘT file. Dùng khi chỉ cần vài file cụ thể.
+
+Cả hai nhận ``user=`` để chạy dưới user sandbox.
+
+Vì ``persist_workspace`` gói cả workspace, nó cũng gói cả những thứ KHÔNG phải
+chứng cứ (mã nguồn target, ``.git``, file tạm). Việc lọc nằm ở ``_is_evidence``.
 """
 
 from __future__ import annotations
 
 import asyncio
-import io
+import contextlib
 import logging
 import shutil
 import tarfile
@@ -31,6 +49,7 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
+    import io
     from collections.abc import Iterable
 
 
@@ -39,14 +58,15 @@ from strix.tools.proxy import caido_api
 
 logger = logging.getLogger(__name__)
 
-#: Thư mục gốc trong sandbox chứa ảnh chụp của agent-browser.
-SANDBOX_SCREENSHOT_DIR = "/workspace/.agent-browser-screenshots"
+#: Thư mục gốc trong sandbox chứa ảnh chụp của agent-browser (tương đối workspace).
+SANDBOX_SCREENSHOT_REL = ".agent-browser-screenshots"
 #: Nơi output tool quá lớn được spill ra.
-SANDBOX_TOOL_OUTPUT_DIR = "/workspace/.tool-output"
+SANDBOX_TOOL_OUTPUT_REL = ".tool-output"
 
 #: Đuôi file được coi là chứng cứ đáng thu hoạch.
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
-_EVIDENCE_SUFFIXES = (*_IMAGE_SUFFIXES,
+_EVIDENCE_SUFFIXES = (
+    *_IMAGE_SUFFIXES,
     ".xml",
     ".json",
     ".txt",
@@ -63,9 +83,10 @@ _EVIDENCE_SUFFIXES = (*_IMAGE_SUFFIXES,
     ".resp",
     ".nmap",
     ".gnmap",
+    ".out",
 )
 
-#: Tên file/thư mục bỏ qua — rác hoặc không phải chứng cứ.
+#: Tên file/thư mục bỏ qua — rác, không phải chứng cứ.
 _SKIP_NAMES = frozenset(
     {
         "__pycache__",
@@ -76,6 +97,15 @@ _SKIP_NAMES = frozenset(
         "db.sqlite-wal",
         "db.sqlite-shm",
     }
+)
+
+#: Tiền tố thư mục bỏ qua khi duyệt (target source, không phải chứng cứ).
+_SKIP_DIR_PREFIXES = (
+    "node_modules/",
+    "__pycache__/",
+    ".git/",
+    "venv/",
+    ".venv/",
 )
 
 #: Trần an toàn cho một lần thu hoạch.
@@ -144,68 +174,96 @@ def evidence_root(run_dir: Path) -> Path:
     return run_dir / "evidence"
 
 
-def _is_evidence_candidate(name: str) -> bool:
-    lowered = name.casefold()
-    if lowered in _SKIP_NAMES:
+def _is_evidence(rel: str) -> bool:
+    """File này có đáng thu hoạch không, tính theo đường dẫn tương đối workspace."""
+    if not rel or rel.endswith("/"):
         return False
-    if lowered.startswith(".") and not lowered.endswith(_IMAGE_SUFFIXES):
-        # File ẩn thường là metadata; ảnh trong thư mục ẩn vẫn nhận.
+    lowered = rel.casefold()
+    if any(lowered.startswith(prefix) for prefix in _SKIP_DIR_PREFIXES):
+        return False
+    name = Path(lowered).name
+    if name in _SKIP_NAMES:
+        return False
+    # File ẩn chỉ nhận nếu là ảnh (ảnh nằm trong thư mục ẩn của agent-browser).
+    if name.startswith(".") and not name.endswith(_IMAGE_SUFFIXES):
         return False
     return lowered.endswith(_EVIDENCE_SUFFIXES)
 
 
-def _safe_relative(member_name: str, base: str) -> Path:
-    """Đường dẫn tương đối an toàn, chặn thoát khỏi thư mục đích."""
-    raw = Path(member_name)
+def _destination_for(rel: str) -> tuple[str, str]:
+    """Trả (nhóm, đường dẫn con) cho một file chứng cứ."""
+    lowered = rel.casefold()
+    if lowered.startswith(f"{SANDBOX_SCREENSHOT_REL}/") or lowered.endswith(_IMAGE_SUFFIXES):
+        return "screenshots", Path(rel).name
+    if lowered.startswith(f"{SANDBOX_TOOL_OUTPUT_REL}/"):
+        return "tool-output", str(Path(rel).relative_to(SANDBOX_TOOL_OUTPUT_REL))
+    return "artifacts", rel
+
+
+def _unpack_workspace_archive(
+    archive: io.IOBase,
+    dest_root: Path,
+    budget: _Budget,
+) -> tuple[list[Path], list[Path], list[Path]]:
+    """Giải nén tar workspace, phân loại vào screenshots/tool-output/artifacts."""
+    screenshots: list[Path] = []
+    tool_output: list[Path] = []
+    artifacts: list[Path] = []
+
+    with tarfile.open(fileobj=archive, mode="r|*") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            # removeprefix chứ KHÔNG lstrip: lstrip('./') xoá mọi ký tự
+            # '.' và '/' ở đầu, làm mất dấu chấm của '.tool-output'.
+            rel = member.name.removeprefix("./")
+            if not _is_evidence(rel):
+                continue
+            if not budget.take(rel, member.size):
+                continue
+
+            group, sub = _destination_for(rel)
+            # Chặn thoát thư mục: chỉ nhận đường dẫn tương đối an toàn.
+            safe_parts = [p for p in Path(sub).parts if p not in {"..", ".", "/", ""}]
+            if not safe_parts:
+                continue
+            target = dest_root / group / Path(*safe_parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            extracted = tar.extractfile(member)
+            if extracted is None:
+                continue
+            with target.open("wb") as fh:
+                shutil.copyfileobj(extracted, fh)
+
+            if group == "screenshots":
+                screenshots.append(target)
+            elif group == "tool-output":
+                tool_output.append(target)
+            else:
+                artifacts.append(target)
+
+    return screenshots, tool_output, artifacts
+
+
+async def _harvest_workspace(
+    session: Any, dest_root: Path, budget: _Budget
+) -> tuple[list[Path], list[Path], list[Path]]:
+    """Lấy toàn bộ workspace qua ``persist_workspace`` rồi phân loại."""
     try:
-        rel = raw.relative_to(base)
-    except ValueError:
-        rel = Path(raw.name)
-    parts = [p for p in rel.parts if p not in {"..", ".", "/", ""}]
-    return Path(*parts) if parts else Path(raw.name)
-
-
-async def _extract_dir(session: Any, sandbox_path: str, dest: Path, budget: _Budget) -> list[Path]:
-    """Kéo một cây thư mục trong sandbox về ``dest``.
-
-    Dùng ``session.extract`` với tar: một lượt gọi cho cả cây, thay vì
-    ``ls`` + ``read`` từng file (chậm và dễ đứt giữa dòng).
-    """
-    try:
-        buf = io.BytesIO()
-        await session.extract(Path(sandbox_path), buf, compression_scheme="tar")
-    except Exception as exc:  # noqa: BLE001 - thư mục có thể không tồn tại
-        logger.debug("extract(%s) thất bại: %s", sandbox_path, exc)
-        return []
-
-    buf.seek(0)
-
-    def _unpack() -> list[Path]:
-        out: list[Path] = []
-        with tarfile.open(fileobj=buf, mode="r:") as tar:
-            for member in tar.getmembers():
-                if not member.isfile():
-                    continue
-                name = Path(member.name).name
-                if not _is_evidence_candidate(name):
-                    continue
-                if not budget.take(member.name, member.size):
-                    continue
-                target = dest / _safe_relative(member.name, sandbox_path)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                extracted = tar.extractfile(member)
-                if extracted is None:
-                    continue
-                with target.open("wb") as fh:
-                    shutil.copyfileobj(extracted, fh)
-                out.append(target)
-        return out
+        archive = await session.persist_workspace()
+    except Exception as exc:  # noqa: BLE001 - thu hoạch là phụ trợ
+        logger.debug("persist_workspace thất bại: %s", exc)
+        return [], [], []
 
     try:
-        return await asyncio.to_thread(_unpack)
+        return await asyncio.to_thread(_unpack_workspace_archive, archive, dest_root, budget)
     except Exception as exc:  # noqa: BLE001 - tar hỏng không được làm sập
-        logger.debug("giải nén tar của %s thất bại: %s", sandbox_path, exc)
-        return []
+        logger.debug("giải nén workspace thất bại: %s", exc)
+        return [], [], []
+    finally:
+        with contextlib.suppress(Exception):
+            archive.close()  # type: ignore[attr-defined]
 
 
 def _decode(raw: Any) -> str:
@@ -239,8 +297,7 @@ async def _harvest_http(
     """Lưu request/response HTTP thô cho các phát hiện có trích dẫn proxy.
 
     Báo cáo chỉ lưu ``http_exchange_ids`` — con số trỏ vào Caido trong sandbox.
-    Sau khi container bị xoá, con số đó vô nghĩa. Ở đây ta chụp lại nội dung
-    thật để bằng chứng còn đọc được về sau.
+    Sau khi container bị xoá, con số đó vô nghĩa.
     """
     written: list[Path] = []
     if caido_client is None:
@@ -302,22 +359,11 @@ async def harvest_evidence(
     try:
         root.mkdir(parents=True, exist_ok=True)
 
-        # 1) Ảnh chụp màn hình — chứng cứ trực quan giá trị nhất.
-        result.screenshots = await _extract_dir(
-            session, SANDBOX_SCREENSHOT_DIR, root / "screenshots", budget
+        result.screenshots, tool_output, result.artifacts = await _harvest_workspace(
+            session, root, budget
         )
+        result.artifacts.extend(tool_output)
 
-        # 2) Output tool bị spill (kết quả quét dài).
-        result.artifacts.extend(
-            await _extract_dir(session, SANDBOX_TOOL_OUTPUT_DIR, root / "tool-output", budget)
-        )
-
-        # 3) Artifact khác agent tạo trong /workspace.
-        result.artifacts.extend(
-            await _extract_dir(session, "/workspace", root / "artifacts", budget)
-        )
-
-        # 4) HTTP request/response thô cho phát hiện có trích dẫn proxy.
         result.http_exchanges = await _harvest_http(
             caido_client, report_list, root / "http", budget
         )

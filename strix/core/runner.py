@@ -51,6 +51,7 @@ from strix.tools.output_store import (
     WORKSPACE_SPILL_DIR,
     configure_spill_writer,
 )
+from strix.utils.evidence_harvester import harvest_evidence
 
 
 if TYPE_CHECKING:
@@ -174,6 +175,75 @@ def _compose_root_instructions_override(
         f"{root_instructions_override}\n"
         "</root_scan_instructions_override>"
     )
+
+
+def _reports_for_harvest() -> list[dict[str, Any]]:
+    """Báo cáo lỗ hổng hiện có, để harvester chụp lại HTTP exchange đã trích dẫn."""
+    try:
+        report_state = get_global_report_state()
+        if report_state is None:
+            return []
+        return list(report_state.vulnerability_reports or [])
+    except Exception:  # noqa: BLE001 - thu hoạch là phụ trợ
+        return []
+
+
+def export_evidence_to_desktop(run_dir: Path, run_name: str) -> Path | None:
+    """Sao chép chứng cứ ra Desktop để người dùng mở xem ngay.
+
+    Desktop là nơi anh Hiếu yêu cầu đặt file bằng chứng. Giữ bản gốc trong
+    ``run_dir/evidence`` (đi kèm báo cáo) và một bản sao ở Desktop (tiện mở).
+    """
+    import shutil
+
+    source = run_dir / "evidence"
+    if not source.is_dir() or not any(source.iterdir()):
+        return None
+
+    desktop = Path.home() / "Desktop"
+    if not desktop.is_dir():
+        return None
+
+    target = desktop / f"strix-evidence-{run_name}"
+    try:
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(source, target)
+    except Exception:  # noqa: BLE001 - sao chép là tiện ích
+        logger.debug("sao chép chứng cứ ra Desktop thất bại", exc_info=True)
+        return None
+    return target
+
+
+async def _harvest_evidence_before_teardown(
+    *,
+    session: Any,
+    run_dir: Path,
+    caido_client: Any = None,
+) -> None:
+    """Thu hoạch chứng cứ từ sandbox còn sống, rồi xuất bản sao ra Desktop.
+
+    Không bao giờ ném lỗi: teardown phải chạy được kể cả khi thu hoạch hỏng.
+    """
+    try:
+        result = await harvest_evidence(
+            session=session,
+            run_dir=run_dir,
+            reports=_reports_for_harvest(),
+            caido_client=caido_client,
+        )
+        if result.count == 0:
+            logger.info("Thu hoạch chứng cứ: không có gì để thu (thư mục %s)", run_dir)
+            return
+
+        logger.info("Thu hoạch chứng cứ xong: %s", result.summary())
+
+        run_name = run_dir.name
+        desktop_path = await asyncio.to_thread(export_evidence_to_desktop, run_dir, run_name)
+        if desktop_path is not None:
+            logger.info("Chứng cứ đã sao ra Desktop: %s", desktop_path)
+    except Exception:
+        logger.exception("thu hoạch chứng cứ trước teardown thất bại")
 
 
 async def run_strix_scan(
@@ -638,6 +708,15 @@ async def run_strix_scan(
         with contextlib.suppress(Exception):
             await coordinator._maybe_snapshot()
         if cleanup_on_exit:
+            # Thu hoạch chứng cứ TRƯỚC khi xoá container: ảnh chụp, output
+            # sqlmap/nmap, request/response HTTP thô đều nằm trong sandbox và
+            # sẽ mất vĩnh viễn sau lệnh dưới. Không được để lỗi ở đây làm hỏng
+            # teardown - harvest_evidence tự nuốt mọi lỗi.
+            await _harvest_evidence_before_teardown(
+                session=sandbox_session,
+                run_dir=run_dir,
+                caido_client=bundle.get("caido_client"),
+            )
             logger.info("Tearing down sandbox session for scan %s", scan_id)
             await session_manager.cleanup(scan_id)
         logger.info("Strix scan %s done", scan_id)
