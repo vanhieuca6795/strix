@@ -51,3 +51,17 @@ def _isolate_wallet_config(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     for name in ("MPPX_ACCOUNT", "MPPX_STRIPE_SECRET_KEY", "MPPX_STRIPE_PAYMENT_METHOD"):
         monkeypatch.delenv(name, raising=False)
+
+@pytest.fixture(autouse=True)
+def _disable_tool_provisioning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the tool provisioner from installing packages during tests.
+
+    ``tool_provisioner`` runs ``apt-get``/``pip`` in the sandbox and writes
+    ``/workspace/.strix-toolchain.json`` whenever a session is created. That is
+    wrong in a test suite for three reasons: it does network I/O and installs
+    packages, it slows every session test down by minutes, and it adds a write
+    to the sandbox that the session tests assert against. Turning it off here
+    keeps those tests meaningful instead of loosening their assertions, which
+    would hide a future write that really is a leak.
+    """
+    monkeypatch.setenv("STRIX_PROVISION_TOOLS", "off")

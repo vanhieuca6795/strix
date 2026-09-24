@@ -505,6 +505,8 @@ async def run_strix_scan(
             "spawn_child_agent": spawn_child_agent,
             "scan_targets": build_scan_targets(scan_config),
             "max_context_images": settings.runtime.max_context_images,
+            # Đường dẫn thư mục chạy, để tool lưu chứng cứ (verify_poc, harvester).
+            "run_dir": str(run_dir),
         }
 
         root_session = open_agent_session(root_id, agents_db)

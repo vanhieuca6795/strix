@@ -776,6 +776,70 @@ def _do_delete(
         "severity": deleted.get("severity"),
     }
 
+def _verification_status(*, finding_key: str, title: str) -> dict[str, Any] | None:
+    """Tra xem PoC của phát hiện này đã được chạy thật chưa.
+
+    Trả về dict thông tin khi TÌM THẤY lần kiểm chứng VÀ nó không đạt kỳ vọng,
+    hoặc khi có lần kiểm chứng nhưng PoC không hề chạy được. Trả ``None`` khi
+    chưa từng kiểm chứng (scan whitebox thuần đọc source không cần chạy PoC)
+    hoặc khi kiểm chứng đã đạt.
+
+    Đây là CẢNH BÁO, không phải cổng chặn: agent vẫn nộp được báo cáo, nhưng
+    phải thấy rõ rằng PoC chưa chứng minh được gì.
+    """
+    try:
+        from strix.tools.verify.tool import ledger_snapshot
+
+        ledger = ledger_snapshot()
+    except Exception:  # noqa: BLE001 - module kiểm chứng là phụ trợ
+        return None
+
+    if not ledger:
+        return None
+
+    key = (finding_key or "").strip()
+    record = ledger.get(key) if key else None
+    if record is None:
+        # Không khớp khoá chính xác: thử khớp lỏng. Agent hay đặt khoá ngắn lúc
+        # chạy PoC rồi viết tiêu đề dài lúc nộp báo cáo, nên phải xét cả khoá
+        # lẫn tiêu đề làm nguồn chứa, không chỉ mỗi tiêu đề.
+        haystack = f"{key} {title}".casefold().strip()
+        for candidate_key, candidate in ledger.items():
+            needle = candidate_key.casefold().strip()
+            if needle and needle in haystack:
+                record = candidate
+                break
+    if record is None:
+        return None
+
+    if not record.ran:
+        return {
+            "verification_id": record.verification_id,
+            "ran": False,
+            "warning": (
+                "PoC của phát hiện này KHÔNG chạy được trong sandbox "
+                f"({record.error or 'lý do không rõ'}). Báo cáo sẽ được lưu, "
+                "nhưng hãy ghi rõ trong `assumptions` rằng khai thác chưa "
+                "được chứng minh bằng thực thi."
+            ),
+        }
+
+    if record.expectation and not record.expectation_met:
+        return {
+            "verification_id": record.verification_id,
+            "ran": True,
+            "exit_code": record.exit_code,
+            "expectation": record.expectation,
+            "warning": (
+                f"PoC đã chạy nhưng output KHÔNG chứa {record.expectation!r} "
+                "(dấu hiệu khai thác kỳ vọng). Hoặc lỗ hổng không khai thác "
+                "được như đã thử, hoặc PoC cần chỉnh. Cân nhắc hạ `confidence` "
+                "và nêu rõ khoảng trống này."
+            ),
+        }
+
+    return None
+
 
 def _verify_evidence_grounding(*, evidence: str, agent_id: str | None) -> dict[str, Any] | None:
     """Đối chiếu ``evidence`` với output lệnh thật đã quan sát.
@@ -906,6 +970,12 @@ async def _do_create(
     if grounding_error is not None:
         return grounding_error
 
+    # Cảnh báo (không chặn) khi PoC chưa chứng minh được khai thác.
+    verification_warning = _verification_status(
+        finding_key=str(title or ""),
+        title=str(title or ""),
+    )
+
     try:
         cvss_score, severity, _vector = _calculate_cvss(cvss_breakdown)
     except ValueError as exc:
@@ -1007,13 +1077,21 @@ async def _do_create(
             cvss_score,
             title,
         )
-        return {
+        payload: dict[str, Any] = {
             "success": True,
             "message": f"Vulnerability report '{title}' created successfully",
             "report_id": report_id,
             "severity": severity,
             "cvss_score": cvss_score,
         }
+        if verification_warning is not None:
+            payload["verification"] = verification_warning
+            payload["warning"] = (
+                "Báo cáo đã lưu, nhưng PoC CHƯA chứng minh được khai thác "
+                "(xem trường 'verification'). Cân nhắc hạ `confidence` hoặc "
+                "nêu rõ khoảng trống trong `assumptions`."
+            )
+        return payload
 
 
 def _caller_identity(ctx: RunContextWrapper) -> tuple[str | None, str | None]:
