@@ -10,7 +10,9 @@ thác quan trọng KHÔNG có sẵn, dù đều nằm trong kho Kali và cài đ
 | ``wpscan`` | WordPress (rất phổ biến ở VN) |
 | ``exploitdb`` | ``searchsploit`` tra exploit có sẵn |
 | ``hydra`` / ``john`` / ``hashcat`` | credential + crack hash |
-| ``gobuster`` / ``feroxbuster`` / ``whatweb`` / ``nikto`` | discovery + fingerprint |
+| ``gobuster`` / ``feroxbuster`` / ``dirsearch`` / ``whatweb`` | discovery + fingerprint |
+| ``nikto`` | web server scan |
+| ``eyewitness`` | chụp ảnh hàng loạt trang làm chứng cứ |
 
 ================================ HAI CẠM BẪY THẬT ================================
 
@@ -67,7 +69,8 @@ _UNSET_PROXY = (
 #:
 #: THỜI GIAN CÀI ĐO ĐƯỢC (sandbox 1.3.0, mạng thật):
 #: ``dalfox`` 8s, ``wpscan`` 8s, ``gobuster`` 8s, ``feroxbuster`` 9s,
-#: ``whatweb`` 6s, ``nikto`` 16s, ``exploitdb`` 25s -> tổng ~80 giây.
+#: ``whatweb`` 6s, ``nikto`` 16s, ``exploitdb`` 25s, ``dirsearch`` ~3s,
+#: ``eyewitness`` ~10s -> tổng ~95 giây.
 #:
 #: CỐ Ý KHÔNG có ``commix`` ở đây: nó phụ thuộc ``metasploit-framework``, kéo
 #: theo 66 gói và mất **250 giây** - gấp ba lần cả bộ còn lại. Với scan mode
@@ -81,6 +84,11 @@ _APT_CORE: tuple[str, ...] = (
     "whatweb",  # fingerprint
     "gobuster",  # content discovery
     "feroxbuster",  # content discovery (recursive)
+    "dirsearch",  # content discovery, nhẹ (0.4 MB)
+    # CHỤP CHỨNG CỨ BẰNG ẢNH. 5.9 MB, chụp hàng loạt trang và lưu kèm HTML +
+    # header. Đây là cách chứng minh "dữ liệu có thật ở đó" mà KHÔNG phải tải
+    # nội dung về: ảnh cho thấy sự hiện diện, không sao chép hồ sơ.
+    "eyewitness",
 )
 
 #: Nhóm nặng hơn, chỉ cài khi bật mức đầy đủ. ``commix`` ở đây vì nó kéo theo
