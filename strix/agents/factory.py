@@ -76,6 +76,7 @@ from strix.tools.todo.tools import (
     mark_todo_pending,
     update_todo,
 )
+from strix.tools.verify.tool import verify_poc
 from strix.tools.web_search.tool import web_get_contents, web_search
 from strix.utils.receipt_store import record_receipt
 
@@ -612,6 +613,11 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     amend_threat_model,
     web_search,
     web_get_contents,
+    # Đứng ngay trước create_vulnerability_report để thứ tự tool gợi ý chạy
+    # PoC trước khi nộp báo cáo. Không có dòng này thì tool không tồn tại với
+    # agent, ledger kiểm chứng luôn rỗng, và mọi phát hiện đều không có PoC nào
+    # từng chạy.
+    verify_poc,
     create_vulnerability_report,
     create_dependency_report,
     update_vulnerability_report,

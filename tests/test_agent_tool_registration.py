@@ -128,3 +128,25 @@ def test_disabling_strict_leaves_shared_tools_untouched() -> None:
     agent = factory.build_strix_agent(is_root=True)
 
     assert any(t.strict_json_schema for t in agent.tools if isinstance(t, FunctionTool))
+
+
+def test_verify_poc_is_registered_for_every_agent() -> None:
+    """``verify_poc`` phải có mặt trong toolset thật của agent.
+
+    Lỗi đã lọt một lần: tool được viết, có test riêng gọi thẳng
+    ``verify_poc.on_invoke_tool``, nhưng KHÔNG hề được đăng ký vào factory —
+    nên agent không bao giờ có nó. Test riêng của tool không bắt được điều đó;
+    chỉ test trên toolset dựng thật mới bắt được.
+    """
+    base_names = [t.name for t in factory._BASE_TOOLS]
+    assert "verify_poc" in base_names
+
+    for is_root in (True, False):
+        names = [t.name for t in factory.build_strix_agent(is_root=is_root).tools]
+        assert "verify_poc" in names
+
+
+def test_verify_poc_sits_before_report_tool() -> None:
+    """Thứ tự tool gợi ý chạy PoC trước khi nộp báo cáo."""
+    names = [t.name for t in factory._BASE_TOOLS]
+    assert names.index("verify_poc") == names.index("create_vulnerability_report") - 1
