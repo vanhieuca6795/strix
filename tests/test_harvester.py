@@ -15,10 +15,13 @@ import io
 import shutil
 import tarfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from strix.core import runner
+from strix.runtime.caido_handle import CaidoBootstrapHandle
+from strix.tools.proxy import caido_api
 from strix.utils import evidence_harvester as h
 
 
@@ -54,10 +57,12 @@ def run_dir(tmp_path: Path) -> Path:
 class TestHarvestScreenshots:
     @pytest.mark.asyncio
     async def test_copies_screenshots(self, run_dir: Path) -> None:
-        session = _FakeSession({
-            ".agent-browser-screenshots/page1.png": b"\x89PNG-fake-1",
-            ".agent-browser-screenshots/page2.png": b"\x89PNG-fake-2",
-        })
+        session = _FakeSession(
+            {
+                ".agent-browser-screenshots/page1.png": b"\x89PNG-fake-1",
+                ".agent-browser-screenshots/page2.png": b"\x89PNG-fake-2",
+            }
+        )
 
         result = await h.harvest_evidence(session=session, run_dir=run_dir)
 
@@ -77,10 +82,12 @@ class TestHarvestScreenshots:
 
     @pytest.mark.asyncio
     async def test_unrelated_files_not_collected(self, run_dir: Path) -> None:
-        session = _FakeSession({
-            "app.py": b"print('target source')",
-            ".agent-browser-screenshots/shot.png": b"png",
-        })
+        session = _FakeSession(
+            {
+                "app.py": b"print('target source')",
+                ".agent-browser-screenshots/shot.png": b"png",
+            }
+        )
         result = await h.harvest_evidence(session=session, run_dir=run_dir)
         assert len(result.screenshots) == 1
         # `app.py` là mã nguồn target, không phải chứng cứ của cuộc kiểm thử.
@@ -90,11 +97,13 @@ class TestHarvestScreenshots:
 class TestHarvestArtifacts:
     @pytest.mark.asyncio
     async def test_copies_tool_output_and_other_evidence(self, run_dir: Path) -> None:
-        session = _FakeSession({
-            ".tool-output/out1.txt": b"nmap result",
-            "scan.xml": b"<nmaprun/>",
-            "junk.bin": b"\x00\x01",
-        })
+        session = _FakeSession(
+            {
+                ".tool-output/out1.txt": b"nmap result",
+                "scan.xml": b"<nmaprun/>",
+                "junk.bin": b"\x00\x01",
+            }
+        )
 
         result = await h.harvest_evidence(session=session, run_dir=run_dir)
 
@@ -106,22 +115,26 @@ class TestHarvestArtifacts:
 
     @pytest.mark.asyncio
     async def test_skips_database_files(self, run_dir: Path) -> None:
-        session = _FakeSession({
-            "db.sqlite": b"SQLite format 3",
-            "keep.json": b"{}",
-        })
+        session = _FakeSession(
+            {
+                "db.sqlite": b"SQLite format 3",
+                "keep.json": b"{}",
+            }
+        )
         result = await h.harvest_evidence(session=session, run_dir=run_dir)
         assert len(result.artifacts) == 1
         assert (run_dir / "evidence" / "artifacts" / "keep.json").exists()
 
     @pytest.mark.asyncio
     async def test_skips_target_source_directories(self, run_dir: Path) -> None:
-        session = _FakeSession({
-            "node_modules/pkg/index.js": b"// dep",
-            "__pycache__/mod.pyc": b"\x00",
-            ".git/config": b"[core]",
-            "report.md": b"# real evidence",
-        })
+        session = _FakeSession(
+            {
+                "node_modules/pkg/index.js": b"// dep",
+                "__pycache__/mod.pyc": b"\x00",
+                ".git/config": b"[core]",
+                "report.md": b"# real evidence",
+            }
+        )
         result = await h.harvest_evidence(session=session, run_dir=run_dir)
         names = [p.name for p in result.artifacts]
         assert names == ["report.md"]
@@ -232,3 +245,134 @@ class TestDesktopExport:
         assert (out / "new.txt").exists()
         assert not (out / "old.txt").exists()
         shutil.rmtree(out, ignore_errors=True)
+
+
+class _FakeCaidoHandle(CaidoBootstrapHandle):
+    """CaidoBootstrapHandle thật, nhưng task giả: chỉ nối handler ``get()``.
+
+    Kế thừa ĐÚNG lớp thật để đi qua nhánh ``isinstance`` trong harvester -
+    đúng thứ đã hỏng (handle bị truyền thẳng vào SDK thay vì resolve).
+    """
+
+    def __init__(self, client: object, *, boom: bool = False) -> None:
+        # Cố ý KHÔNG gọi super().__init__: không có task bootstrap nào ở đây.
+        self._client = client
+        self._boom = boom
+        self.get_calls = 0
+
+    async def get(self) -> object:
+        self.get_calls += 1
+        if self._boom:
+            raise RuntimeError("caido login failed")
+        return self._client
+
+
+class _FakeExchange:
+    def __init__(self, raw_request: str, raw_response: str) -> None:
+        self.request = SimpleNamespace(raw=raw_request)
+        self.response = SimpleNamespace(raw=raw_response)
+
+
+class TestResolveCaidoClient:
+    """Harvester phải resolve handle, không truyền thẳng handle vào SDK.
+
+    Lỗi đo được trước khi vá: mọi lượt quét log
+    ``'CaidoBootstrapHandle' object has no attribute 'request'`` và phần HTTP
+    luôn ra 0 file, nên ``http_exchange_ids`` trong báo cáo thành vô nghĩa.
+    """
+
+    @pytest.mark.asyncio
+    async def test_resolves_handle_to_client(self) -> None:
+        client = object()
+        handle = _FakeCaidoHandle(client)
+
+        assert await h._resolve_caido_client(handle) is client
+        assert handle.get_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_plain_client_passes_through(self) -> None:
+        client = object()
+        assert await h._resolve_caido_client(client) is client
+
+    @pytest.mark.asyncio
+    async def test_none_stays_none(self) -> None:
+        assert await h._resolve_caido_client(None) is None
+
+    @pytest.mark.asyncio
+    async def test_failed_bootstrap_degrades_to_none(self) -> None:
+        # Bootstrap hỏng chỉ bỏ phần HTTP; thân cuộc quét vẫn phải thu được.
+        assert await h._resolve_caido_client(_FakeCaidoHandle(object(), boom=True)) is None
+
+
+class TestHarvestHttpExchanges:
+    @pytest.mark.asyncio
+    async def test_handle_is_resolved_and_exchanges_are_written(
+        self, run_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        exchange = _FakeExchange("GET /hoso/1 HTTP/1.1", "HTTP/1.1 200 OK")
+        seen: list[tuple[object, str]] = []
+
+        async def _fake_get(client: object, request_id: str, **_kw: object) -> object:
+            seen.append((client, request_id))
+            return exchange
+
+        monkeypatch.setattr(caido_api, "get_request_with_client", _fake_get)
+
+        client = object()
+        result = await h.harvest_evidence(
+            session=_FakeSession({}),
+            run_dir=run_dir,
+            reports=[{"title": "lộ dữ liệu bệnh án", "http_exchange_ids": ["3410"]}],
+            caido_client=_FakeCaidoHandle(client),
+        )
+
+        # SDK phải nhận CLIENT, không phải handle.
+        assert seen == [(client, "3410")]
+        assert len(result.http_exchanges) == 1
+        written = (run_dir / "evidence" / "http" / "exchange-3410.txt").read_text(encoding="utf-8")
+        assert "lộ dữ liệu bệnh án" in written
+        assert "GET /hoso/1 HTTP/1.1" in written
+        assert "HTTP/1.1 200 OK" in written
+
+    @pytest.mark.asyncio
+    async def test_broken_bootstrap_skips_http_without_failing_scan(self, run_dir: Path) -> None:
+        result = await h.harvest_evidence(
+            session=_FakeSession({"scan.xml": b"<nmaprun/>"}),
+            run_dir=run_dir,
+            reports=[{"title": "x", "http_exchange_ids": ["1"]}],
+            caido_client=_FakeCaidoHandle(object(), boom=True),
+        )
+
+        assert result.http_exchanges == []
+        # Phần còn lại của chứng cứ vẫn phải sống sót.
+        assert len(result.artifacts) == 1
+
+
+class TestScreenshotPathsArePreserved:
+    """Ảnh trùng tên ở thư mục khác nhau không được ghi đè nhau."""
+
+    @pytest.mark.asyncio
+    async def test_same_basename_in_different_dirs_both_survive(self, run_dir: Path) -> None:
+        session = _FakeSession(
+            {
+                ".agent-browser-screenshots/hoichan/shot.png": b"anh-1",
+                ".agent-browser-screenshots/pacs/shot.png": b"anh-2",
+            }
+        )
+
+        result = await h.harvest_evidence(session=session, run_dir=run_dir)
+
+        assert len(result.screenshots) == 2
+        saved = {p.read_bytes() for p in result.screenshots}
+        assert saved == {b"anh-1", b"anh-2"}
+
+    @pytest.mark.asyncio
+    async def test_image_outside_screenshot_dir_keeps_its_tree(self, run_dir: Path) -> None:
+        session = _FakeSession({"artifacts/wp/assets/icon.png": b"asset"})
+
+        result = await h.harvest_evidence(session=session, run_dir=run_dir)
+
+        assert len(result.screenshots) == 1
+        assert result.screenshots[0] == (
+            run_dir / "evidence" / "screenshots" / "artifacts/wp/assets/icon.png"
+        )

@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 
+from strix.runtime.caido_handle import CaidoBootstrapHandle
 from strix.tools.proxy import caido_api
 
 
@@ -193,8 +194,13 @@ def _is_evidence(rel: str) -> bool:
 def _destination_for(rel: str) -> tuple[str, str]:
     """Trả (nhóm, đường dẫn con) cho một file chứng cứ."""
     lowered = rel.casefold()
-    if lowered.startswith(f"{SANDBOX_SCREENSHOT_REL}/") or lowered.endswith(_IMAGE_SUFFIXES):
-        return "screenshots", Path(rel).name
+    if lowered.startswith(f"{SANDBOX_SCREENSHOT_REL}/"):
+        # Giữ đường dẫn TƯƠNG ĐỐI: chỉ lấy tên file thì mọi ảnh trùng tên ghi
+        # đè nhau, làm mất phần lớn ảnh chứng cứ chụp được.
+        return "screenshots", str(Path(rel).relative_to(SANDBOX_SCREENSHOT_REL))
+    if lowered.endswith(_IMAGE_SUFFIXES):
+        # Ảnh ngoài thư mục chụp màn hình (asset, sơ đồ) giữ nguyên cây.
+        return "screenshots", rel
     if lowered.startswith(f"{SANDBOX_TOOL_OUTPUT_REL}/"):
         return "tool-output", str(Path(rel).relative_to(SANDBOX_TOOL_OUTPUT_REL))
     return "artifacts", rel
@@ -288,6 +294,34 @@ def _format_exchange(request_id: str, title: str, result: Any) -> str:
     )
 
 
+async def _resolve_caido_client(raw: Any) -> Any:
+    """Lấy client Caido thật từ handle khởi động chậm.
+
+    ``session_manager`` bỏ một :class:`CaidoBootstrapHandle` (chưa resolve) vào
+    context, vì việc login Caido chạy song song lúc sandbox dựng lên. Tool proxy
+    đã resolve handle này ở ``tools/proxy/tools.py::_ctx_client``, nhưng harvester
+    thì không — hậu quả ĐO ĐƯỢC: mọi lượt quét đều log
+
+        lấy HTTP exchange <id> thất bại:
+            'CaidoBootstrapHandle' object has no attribute 'request'
+
+    nên phần HTTP luôn ra 0 file, và ``http_exchange_ids`` trong báo cáo trỏ vào
+    một Caido đã bị xoá cùng container. Không còn request/response thô thì không
+    chứng minh được rò rỉ dữ liệu — đúng chỗ cần chứng cứ nhất.
+
+    Trả ``None`` khi bootstrap hỏng: phần HTTP bị bỏ, phần còn lại vẫn thu.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, CaidoBootstrapHandle):
+        try:
+            return await raw.get()
+        except Exception as exc:  # noqa: BLE001 - thiếu HTTP không được làm hỏng thu hoạch
+            logger.warning("Caido chưa sẵn sàng, bỏ phần HTTP exchange: %s", exc)
+            return None
+    return raw
+
+
 async def _harvest_http(
     caido_client: Any,
     reports: list[dict[str, Any]],
@@ -300,7 +334,8 @@ async def _harvest_http(
     Sau khi container bị xoá, con số đó vô nghĩa.
     """
     written: list[Path] = []
-    if caido_client is None:
+    client = await _resolve_caido_client(caido_client)
+    if client is None:
         return written
 
     seen: set[str] = set()
@@ -316,7 +351,7 @@ async def _harvest_http(
             seen.add(key)
 
             try:
-                result = await caido_api.get_request_with_client(caido_client, key)
+                result = await caido_api.get_request_with_client(client, key)
             except Exception as exc:  # noqa: BLE001 - một id hỏng không chặn phần còn lại
                 logger.debug("lấy HTTP exchange %s thất bại: %s", key, exc)
                 continue
