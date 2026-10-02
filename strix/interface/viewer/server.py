@@ -189,14 +189,45 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                     self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown endpoint"})
             except BrokenPipeError:
                 logger.debug("viewer client disconnected during POST %s", path)
+            except ValueError as exc:
+                # Thân yêu cầu không hợp lệ (ví dụ Content-Length quá lớn) —
+                # đây là LỖI CỦA NGƯỜI GỌI, trả 400 chứ không phải 500.
+                # Vá 02/10/2026 kèm vuln-0011.
+                logger.warning("viewer rejected POST %s: %s", path, exc)
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid request body"})
             except Exception:
                 # A bad request must never kill the worker thread.
                 logger.exception("viewer request failed: POST %s", path)
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "internal error"})
 
+        # Giới hạn thân yêu cầu POST (vá 02/10/2026 — vuln-0011, CWE-770).
+        # VÌ SAO: trước đây `length = int(...)` không kiểm gì, nên
+        #   (a) `Content-Length: -1` khiến `self.rfile.read(-1)` đọc tới EOF —
+        #       kết nối không bao giờ được trả lời và luồng worker bị TREO MÃI.
+        #       Đo thật trên run strix_451b: tiến trình viewer tăng từ 2 lên 10
+        #       luồng với đúng 8 kết nối thử.
+        #   (b) một giá trị rất lớn gây cấp phát bộ nhớ không giới hạn.
+        # Viewer là công cụ cục bộ nên 1 MiB là dư cho mọi endpoint hiện có
+        # (endpoint lớn nhất là `steer`, vốn đã giới hạn 4000 ký tự).
+        _MAX_BODY_BYTES = 1 * 1024 * 1024
+
         def _read_body(self) -> dict[str, Any]:
-            length = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(length) if length else b""
+            raw_len = (self.headers.get("Content-Length") or "0").strip()
+            try:
+                length = int(raw_len)
+            except ValueError:
+                # Content-Length không phải số: coi như không có thân.
+                return {}
+            if length <= 0:
+                # Âm hoặc 0: KHÔNG bao giờ đọc tới EOF (read(-1) làm treo worker).
+                return {}
+            if length > self._MAX_BODY_BYTES:
+                # Từ chối sớm thay vì cấp phát bộ nhớ không giới hạn.
+                raise ValueError(
+                    f"thân yêu cầu quá lớn: {length} byte "
+                    f"(giới hạn {self._MAX_BODY_BYTES})"
+                )
+            raw = self.rfile.read(length)
             try:
                 body = json.loads(raw or b"{}")
             except json.JSONDecodeError:
@@ -610,7 +641,23 @@ def _open_browser(url: str) -> None:
     try:
         webbrowser.open(url)
     except Exception:  # noqa: BLE001 - launching the browser is best-effort
-        logger.debug("could not open browser for %s", url, exc_info=True)
+        # KHÔNG ghi nguyên URL vào log (vá 02/10/2026 — vuln-0012, CWE-532).
+        # VÌ SAO: URL này mang `?token=<session capability>` — chuỗi mà
+        # `_has_session()` so bằng `secrets.compare_digest` để mở TOÀN BỘ dữ
+        # liệu viewer. Ghi nó ra log dạng văn bản thuần nghĩa là ai đọc được
+        # log (báo cáo lỗi, chia sẻ terminal, thu thập log tự động) cũng có
+        # toàn quyền viewer mà không cần biết gì thêm.
+        # Chỉ ghi phần KHÔNG nhạy cảm, đủ để chẩn đoán.
+        logger.debug(
+            "could not open browser for viewer at %s (token omitted from log)",
+            _strip_query(url),
+            exc_info=True,
+        )
+
+
+def _strip_query(url: str) -> str:
+    """Bỏ phần truy vấn (chứa capability) khỏi URL trước khi ghi log."""
+    return url.split("?", 1)[0]
 
 
 __all__ = ["authorized_url", "bundle_dir", "bundle_is_built", "serve"]
