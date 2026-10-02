@@ -366,11 +366,61 @@ def _candidate_paths(
     )
 
 
+# ---------------------------------------------------------------------------
+# Lời gọi git trong cây KHÔNG đáng tin — vá 02/10/2026 (vuln-0013, CWE-78)
+# ---------------------------------------------------------------------------
+# BỐI CẢNH: `--source` có thể là kho mã nguồn do người khác soạn. Git, khi chạy
+# trong một cây như vậy, KHÔNG đọc một mình `.git/config` — nó còn chạy hook,
+# và đặc biệt là `core.fsmonitor`: git sẽ **thực thi** chương trình được trỏ tới
+# bởi thiết lập đó. Một `.git/config` độc hại vì vậy đạt được thực thi lệnh tuỳ ý
+# trên máy NGƯỜI VẬN HÀNH ngay khi ta chạy `git ls-files` để liệt kê nguồn.
+#
+# ĐÃ ĐO THẬT (run strix_451b): agent dựng PoC `RCE-PROOF-RELOC`, chứng minh một
+# `core.fsmonitor` trỏ tới script ngoài chạy thành công khi git được gọi trên cây
+# nguồn. Mức CAO, CVSS 7.8.
+#
+# CÁCH VÁ — ba lớp, áp cho MỌI lời gọi git chạm vào cây nguồn:
+#   1. `-c core.fsmonitor=false`  → ghi đè qua dòng lệnh (ưu tiên cao nhất),
+#      vô hiệu hoá cơ chế thực thi chương trình ngoài.
+#   2. `-c core.hooksPath=/dev/null` → chặn luôn đường hook.
+#      (Bản Linux của sandbox; trên Windows giá trị này vô hại vì hooks đã tắt.)
+#   3. Môi trường cách ly: `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`
+#      để KHÔNG đọc cấu hình hệ thống/người dùng của máy vận hành, và
+#      `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=echo` để không bật hỏi thông tin
+#      xác thực, và `GIT_OPTIONAL_LOCKS=0` để không ghi khoá vào kho nguồn.
+#
+# Giữ nguyên chức năng: đây vẫn là `git ls-files`, chỉ khác là không cho phép
+# cấu hình của cây nguồn điều khiển tiến trình ngoài.
+_GIT_CONFIG_AN_TOAN: tuple[str, ...] = (
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.hooksPath=/dev/null",
+)
+
+_GIT_ENV_AN_TOAN: dict[str, str] = {
+    # Không đọc /etc/gitconfig và ~/.gitconfig của máy vận hành.
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    # Không hỏi thông tin xác thực (nếu không sẽ treo hoặc lộ prompt).
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_ASKPASS": "echo",
+    # Không ghi khoá vào kho nguồn (chỉ đọc).
+    "GIT_OPTIONAL_LOCKS": "0",
+}
+
+
+def _git_env() -> dict[str, str]:
+    """Môi trường cho tiến trình git chạy trên cây KHÔNG đáng tin."""
+    return {**os.environ, **_GIT_ENV_AN_TOAN}
+
+
 def _git_candidate_paths(git: str, git_root: Path, source: Path) -> Iterator[Path]:
     """Stream Git's NUL-delimited manifest without buffering an unbounded repository."""
     relative_source = source.relative_to(git_root)
     command = [
         git,
+        *_GIT_CONFIG_AN_TOAN,
         "-C",
         str(git_root),
         "ls-files",
@@ -387,6 +437,7 @@ def _git_candidate_paths(git: str, git_root: Path, source: Path) -> Iterator[Pat
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            env=_git_env(),
         )
     except OSError as exc:
         raise http.CloudError(f"could not enumerate Git source files: {exc}") from exc
@@ -517,10 +568,11 @@ def _git_root(source: Path) -> Path | None:
     if git is None:
         return None
     result = subprocess.run(  # noqa: S603  # nosec B603
-        [git, "-C", str(source), "rev-parse", "--show-toplevel"],
+        [git, *_GIT_CONFIG_AN_TOAN, "-C", str(source), "rev-parse", "--show-toplevel"],
         check=False,
         capture_output=True,
         text=True,
+        env=_git_env(),
     )
     if result.returncode != 0:
         return None
