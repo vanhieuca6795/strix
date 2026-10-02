@@ -25,6 +25,7 @@ import time
 import zipfile
 from pathlib import Path
 from typing import cast
+from urllib.parse import urlparse
 
 import requests
 from rich.console import Console
@@ -116,23 +117,65 @@ def _fetch_latest_version() -> str | None:
         return None
 
 
-def _fetch_asset_digest(version: str, filename: str) -> str | None:
-    """Return the expected sha256 (hex) for a release asset, if the API provides one."""
+class ChecksumUnavailableError(RuntimeError):
+    """Không lấy được checksum để xác minh artifact cập nhật.
+
+    Vá 02/10/2026 (vuln-0014, CWE-494). Trước đây `_fetch_asset_digest()` trả
+    `None` cho MỌI trường hợp (release không công bố digest, lỗi mạng, tên asset
+    không khớp), và nhánh thiếu digest bị BỎ QUA — nghĩa là chỉ cần làm cho
+    GitHub API không trả digest là đưa được binary lạ vào bước cài đặt.
+
+    Nay: thiếu checksum ⇒ DỪNG cập nhật (fail-closed) và nêu rõ nguyên nhân.
+    """
+
+
+def _fetch_asset_digest(version: str, filename: str) -> str:
+    """Trả sha256 (hex) của artifact. NÉM lỗi nếu không xác minh được.
+
+    Phân biệt rõ ba trạng thái — cả ba đều dẫn tới DỪNG cập nhật, nhưng thông
+    báo nêu đúng nguyên nhân để người dùng biết chuyện gì xảy ra:
+
+    ==========================================  ==============================
+    Trạng thái                                  Kết quả
+    ==========================================  ==============================
+    Lỗi mạng/HTTP khi tra cứu                   ChecksumUnavailableError
+    Tên asset không có trong release            ChecksumUnavailableError
+    Release thật sự không công bố `digest`      ChecksumUnavailableError
+    Có digest sha256 hợp lệ                     trả về hex
+    ==========================================  ==============================
+    """
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/v{version}"
     try:
-        with requests.get(
-            f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/v{version}",
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        ) as response:
+        with requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             response.raise_for_status()
             assets = response.json().get("assets", [])
-        for asset in assets:
-            if asset.get("name") == filename:
-                digest = asset.get("digest") or ""
-                if digest.startswith("sha256:"):
-                    return digest.removeprefix("sha256:")
-    except Exception:  # noqa: BLE001
-        logger.debug("release asset digest lookup failed", exc_info=True)
-    return None
+    except Exception as exc:  # noqa: BLE001
+        raise ChecksumUnavailableError(
+            f"không tra cứu được checksum của bản phát hành v{version} "
+            f"(lỗi mạng/HTTP tới api.github.com): {exc}"
+        ) from exc
+
+    ten_asset = [a.get("name") for a in assets if isinstance(a, dict)]
+    for asset in assets:
+        if not isinstance(asset, dict) or asset.get("name") != filename:
+            continue
+        digest = (asset.get("digest") or "").strip()
+        if digest.startswith("sha256:"):
+            gia_tri = digest.removeprefix("sha256:").strip().lower()
+            if len(gia_tri) == 64 and all(c in "0123456789abcdef" for c in gia_tri):
+                return gia_tri
+            raise ChecksumUnavailableError(
+                f"digest của {filename} không phải sha256 hex hợp lệ: {digest!r}"
+            )
+        raise ChecksumUnavailableError(
+            f"bản phát hành v{version} không công bố digest sha256 cho {filename} "
+            f"(digest hiện có: {digest!r})"
+        )
+
+    raise ChecksumUnavailableError(
+        f"không thấy artifact {filename!r} trong bản phát hành v{version} "
+        f"(các asset hiện có: {ten_asset})"
+    )
 
 
 def _sha256_file(path: Path) -> str:
@@ -141,6 +184,38 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+# Host được phép phục vụ artifact cập nhật. Bất kỳ chuyển hướng nào ra ngoài
+# danh sách này đều bị từ chối (vuln-0014 mục 4).
+_HOST_PHAT_HANH_CHO_PHEP: frozenset[str] = frozenset({
+    "github.com",
+    "api.github.com",
+    "objects.githubusercontent.com",
+    "github-releases.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+})
+
+
+def _kiem_host_sau_chuyen_huong(response: object) -> None:
+    """Từ chối nếu URL cuối cùng (sau chuyển hướng) không thuộc miền phát hành.
+
+    Vì sao: một chuyển hướng 302 ra host lạ có thể đưa artifact từ nguồn khác
+    vào bước cài đặt binary đang chạy. Ngay cả khi checksum sau đó khớp, việc
+    tải từ host không mong đợi vẫn là bất thường cần chặn.
+    """
+    url_cuoi = str(getattr(response, "url", "") or "")
+    if not url_cuoi:
+        return
+    try:
+        host = urlparse(url_cuoi).hostname or ""
+    except ValueError:
+        host = ""
+    if host.lower() not in _HOST_PHAT_HANH_CHO_PHEP:
+        raise RuntimeError(
+            f"tải artifact từ host không được phép: {host or url_cuoi!r} "
+            f"(chỉ cho phép: {', '.join(sorted(_HOST_PHAT_HANH_CHO_PHEP))})"
+        )
 
 
 def _read_cache() -> dict[str, object]:
@@ -328,22 +403,31 @@ def _download_and_replace(version: str, target: str, console: Console) -> bool:
             url,
             stream=True,
             timeout=REQUEST_TIMEOUT_SECONDS * 12,
+            allow_redirects=True,
         ) as response:
             response.raise_for_status()
+            # Kiểm host SAU chuyển hướng (vuln-0014 mục 4). Một chuyển hướng 302
+            # ra ngoài miền phát hành có thể đưa artifact từ nguồn khác vào bước
+            # cài đặt — kể cả khi checksum khớp với release chính thức, việc tải
+            # từ host lạ vẫn là điều không mong muốn.
+            _kiem_host_sau_chuyen_huong(response)
             with archive_path.open("wb") as f:
                 for chunk in response.iter_content(chunk_size=1 << 20):
                     f.write(chunk)
 
+        # XÁC MINH BẮT BUỘC (vuln-0014). Trước đây nhánh này là tuỳ chọn
+        # (`if expected_digest: ... else: bỏ qua`), nên chỉ cần nguồn phát hành
+        # không trả digest là qua được cổng kiểm tra. Nay fail-closed.
         expected_digest = _fetch_asset_digest(version, filename)
-        if expected_digest:
-            actual_digest = _sha256_file(archive_path)
-            if actual_digest != expected_digest:
-                raise RuntimeError(
-                    f"checksum mismatch for {filename}: "
-                    f"expected sha256 {expected_digest}, got {actual_digest}"
-                )
-        else:
-            console.print("[dim yellow]No published checksum available; skipping verification[/]")
+        actual_digest = _sha256_file(archive_path)
+        if actual_digest != expected_digest:
+            raise RuntimeError(
+                f"checksum mismatch for {filename}: "
+                f"expected sha256 {expected_digest}, got {actual_digest}"
+            )
+        logger.info(
+            "xác minh checksum thành công cho %s (sha256=%s)", filename, actual_digest
+        )
 
         if is_windows:
             with zipfile.ZipFile(archive_path) as zf:
