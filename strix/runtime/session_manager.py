@@ -7,9 +7,12 @@ import contextlib
 import io
 import logging
 import os
+import shutil
 import sys
 import tarfile
+import tempfile
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -42,6 +45,17 @@ _SESSION_CACHE: dict[str, dict[str, Any]] = {}
 _WORKSPACE_ROOT = "/workspace"
 
 _PROTECTED_METADATA_NAMES = (".git", ".agents", ".codex")
+
+# Kho artifact do chính framework tạo ra trong cây nguồn (vá 02/10/2026 —
+# vuln-0016, CWE-552). VÌ SAO RIÊNG: nếu cây nguồn chứa `strix_runs/` thì thư mục
+# đó bị bind-mount vào sandbox, khiến agent ĐỌC được hội thoại và phát hiện của
+# các lượt quét TRƯỚC trên máy này — kể cả dữ liệu công dân đã thu trong lượt
+# trước. Ghi được vào đó cũng làm hỏng hồ sơ các lượt cũ.
+#
+# Cách xử lý KHÁC `_PROTECTED_METADATA_NAMES`: mount chỉ-đọc là CHƯA đủ (vẫn lộ
+# nội dung). Ta phủ một thư mục RỖNG lên đường dẫn đích, che hoàn toàn nội dung
+# và chặn luôn ghi.
+_MASKED_ARTIFACT_NAMES = ("strix_runs",)
 
 # Extra files travel as one tar archive: a single upload plus one extraction
 # inside the sandbox, instead of several round trips per file.
@@ -76,6 +90,9 @@ def build_bind_mounts(local_sources: list[dict[str, Any]]) -> list[dict[str, Any
         bind_mounts.append({"source": str(resolved), "target": target, "read_only": read_only})
         if src.get("protect_metadata") and not read_only:
             bind_mounts.extend(_metadata_mounts(resolved, target))
+        # Che kho artifact của framework khỏi tầm nhìn của agent (vá 02/10/2026 —
+        # vuln-0016). Áp cho MỌI nguồn cục bộ, kể cả nguồn chỉ-đọc.
+        bind_mounts.extend(_mask_artifact_mounts(resolved, target))
     return bind_mounts
 
 
@@ -222,6 +239,55 @@ async def stage_extra_files(session: BaseSandboxSession, archive: bytes) -> None
         raise RuntimeError(
             f"unpacking extra files in the sandbox failed (exit {result.exit_code}): {stderr}"
         )
+
+
+def _mask_artifact_mounts(tree: Path, target: str) -> list[dict[str, Any]]:
+    """Phủ một thư mục RỖNG lên các kho artifact của framework trong cây nguồn.
+
+    VÌ SAO (vá 02/10/2026 — vuln-0016): nếu cây nguồn chứa `strix_runs/` thì nó
+    bị bind-mount vào sandbox như mọi thư mục con khác. Hệ quả:
+      · agent ĐỌC được hội thoại + phát hiện của các lượt quét TRƯỚC trên máy này
+        (kể cả dữ liệu công dân đã thu trong lượt trước);
+      · agent GHI được vào đó, làm hỏng hồ sơ các lượt cũ.
+
+    Mount chỉ-đọc KHÔNG đủ — nó chặn ghi nhưng vẫn để lộ nội dung. Cách đúng là
+    phủ một thư mục rỗng: nội dung bị che hoàn toàn, và ghi cũng không tới được
+    đích thật.
+
+    Thư mục rỗng dùng chung, tạo một lần, nằm ngoài cây nguồn.
+    """
+    mounts: list[dict[str, Any]] = []
+    for name in _MASKED_ARTIFACT_NAMES:
+        thu_muc = tree / name
+        try:
+            ton_tai = thu_muc.is_dir()
+        except OSError:
+            continue
+        if not ton_tai:
+            continue
+        mounts.append({
+            "source": str(_empty_mask_dir()),
+            "target": f"{target}/{name}",
+            "read_only": False,
+        })
+    return mounts
+
+
+@lru_cache(maxsize=1)
+def _empty_mask_dir() -> Path:
+    """Thư mục RỖNG dùng làm mặt nạ che. Tạo một lần, dùng cho mọi lần gọi."""
+    thu_muc = Path(tempfile.gettempdir()) / "strix-empty-mask"
+    thu_muc.mkdir(parents=True, exist_ok=True)
+    # Dọn sạch phòng trường hợp có gì đó lọt vào giữa các lượt chạy.
+    try:
+        for con in thu_muc.iterdir():
+            if con.is_dir():
+                shutil.rmtree(con, ignore_errors=True)
+            else:
+                con.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return thu_muc
 
 
 def _metadata_mounts(tree: Path, target: str) -> list[dict[str, Any]]:
